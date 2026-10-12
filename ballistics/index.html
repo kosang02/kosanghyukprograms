@@ -150,6 +150,9 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
         <select id="simcol" aria-label="색 표시">
           <option value="mat">재질</option><option value="ep">소성 변형</option><option value="spd">속도</option>
         </select>
+        <select id="simrend" aria-label="표시 방식">
+          <option value="surf">표면</option><option value="pts">입자</option>
+        </select>
       </div>
       <div class="simmsg" id="simmsg" hidden></div>
       <div class="simprog" id="simprog" hidden>
@@ -1977,7 +1980,7 @@ const SIM_CP = {mild:470, ar500:470, rha:477, al:900, ti:523, sus:500, cu:385, p
 const SIM_TM = {mild:1793, ar500:1793, rha:1793, al:925, ti:1900, sus:1700, cu:1356, pb:600, ceram:2300, pc:420, wood:600, conc:1500, ice:273, glass:1400, tglass:1400};
 const SIM_EF = {mild:0.4, ar500:0.12, rha:0.2, al:0.3, ti:0.18, sus:0.6, cu:0.8, pb:1.2, ceram:0.006, pc:0.9, wood:0.08, conc:0.004, ice:0.01, glass:0.002, tglass:0.002};
 function elastic(E, nu){ return {K:E/(3*(1-2*nu)), G:E/(2*(1+nu))}; }
-const SIM = {on:false, worker:null, data:null, group:null, pts:null, geo:null, frame:0, ft:0, playing:false, mode:'mat', busy:false};
+const SIM = {rend:'surf', fieldCache:new Map(), on:false, worker:null, data:null, group:null, pts:null, geo:null, frame:0, ft:0, playing:false, mode:'mat', busy:false};
 let simMode = false;
 function buildSimCfg(){
   const Pm = params(), M = MATS[matKey];
@@ -2081,6 +2084,145 @@ void main(){
 const SIM_FS = `
 varying vec3 vC;
 void main(){ vec2 d = gl_PointCoord - 0.5; gl_FragColor = vec4(vC*(1.0 - 0.35*dot(d, d)*2.0), 1.0); }`;
+/* ---------- surface rendering of the particle result: axisymmetric SDF raymarching ----------
+   Each frame's particles are splatted into a 2D (r, z) occupancy texture. A fragment shader marches rays
+   through a box around the material and samples the texture at (sqrt(x^2+y^2), z), so the 3D solid of revolution
+   costs one 2D texture fetch per step. The iso-surface occupancy = 0.5 is refined by bisection, normals come from
+   the field gradient, and gl_FragDepth is written so the surface sorts correctly against the rest of the scene. */
+const VOL_VS = `
+varying vec3 vW;
+void main(){ vW = (modelMatrix*vec4(position, 1.0)).xyz; gl_Position = projectionMatrix*viewMatrix*vec4(vW, 1.0); }`;
+const VOL_FS = `
+uniform mat4 uVP; uniform sampler2D uTex; uniform vec2 uExt; uniform float uZ0, uStep, uSpec; uniform vec3 uBMin, uBMax, uPlateCol, uProjCol, uL; uniform int uMode;
+varying vec3 vW;
+vec4 S(vec3 p){ return texture2D(uTex, vec2(length(p.xy)/uExt.x, (-p.z - uZ0)/uExt.y)); }
+float D(vec3 p){ return p.x > 0.0 ? 0.0 : S(p).r; }
+vec3 ramp(float q){
+  vec3 a = vec3(0.17, 0.24, 0.33), b = vec3(0.95, 0.76, 0.31), c = vec3(0.88, 0.27, 0.16);
+  return q < 0.35 ? mix(a, b, q/0.35) : mix(b, c, min(1.0, (q - 0.35)/0.65));
+}
+vec3 hsl2rgb(float h, float s, float l){ vec3 k = clamp(abs(mod(h*6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); return l + s*(k - 0.5)*(1.0 - abs(2.0*l - 1.0)); }
+void main(){
+  vec3 ro = cameraPosition, rd = normalize(vW - ro);
+  vec3 iv = 1.0/rd, t0 = (uBMin - ro)*iv, t1 = (uBMax - ro)*iv, tn3 = min(t0, t1), tf3 = max(t0, t1);
+  float tn = max(max(tn3.x, tn3.y), tn3.z), tf = min(min(tf3.x, tf3.y), tf3.z);
+  if (tf < max(tn, 0.0)) discard;
+  tn = max(tn, 0.0);
+  float t = tn; vec3 n; bool hit = false;
+  if (D(ro + rd*t) > 0.5){
+    hit = true;
+    n = tn3.x >= tn3.y && tn3.x >= tn3.z ? vec3(-sign(rd.x), 0.0, 0.0) : tn3.y >= tn3.z ? vec3(0.0, -sign(rd.y), 0.0) : vec3(0.0, 0.0, -sign(rd.z));
+  } else {
+    for (int i=0; i<900; i++){
+      t += uStep;
+      if (t > tf) break;
+      if (D(ro + rd*t) > 0.5){
+        float a = t - uStep, b = t;
+        for (int k=0; k<6; k++){ float m = 0.5*(a + b); if (D(ro + rd*m) > 0.5) b = m; else a = m; }
+        t = b; hit = true; break;
+      }
+    }
+    if (!hit) discard;
+    vec3 p = ro + rd*t; float e = uStep*0.6;
+    n = -normalize(vec3(D(p + vec3(e,0,0)) - D(p - vec3(e,0,0)), D(p + vec3(0,e,0)) - D(p - vec3(0,e,0)), D(p + vec3(0,0,e)) - D(p - vec3(0,0,e))) + 1e-6);
+  }
+  vec3 p = ro + rd*t;
+  vec4 s = S(p);
+  vec3 base;
+  if (uMode == 0){ base = mix(uPlateCol, uProjCol, smoothstep(0.35, 0.65, s.g)); base *= 1.0 - 0.5*s.a; }
+  else if (uMode == 1){ base = s.a > 0.5 ? vec3(0.23, 0.05, 0.02) : ramp(s.b); }
+  else { base = hsl2rgb(0.66 - 0.55*s.b, 0.85, 0.25 + 0.4*s.b); }
+  vec3 V = -rd, L = normalize(uL), H = normalize(L + V);
+  float cut = step(-uStep*1.5, p.x);
+  float dif = max(dot(n, L), 0.0), hemi = 0.5 + 0.5*n.y, sp = pow(max(dot(n, H), 0.0), 40.0);
+  float fr = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+  vec3 col = base*(0.22 + 0.25*hemi + 0.75*dif)*(1.0 - 0.22*cut) + (1.0 - 0.7*cut)*uSpec*(sp + 0.25*fr)*mix(vec3(1.0), base, 0.4);
+  gl_FragColor = vec4(col, 1.0);
+  vec4 cp = uVP*vec4(p, 1.0);
+  gl_FragDepth = clamp(0.5*(cp.z/cp.w) + 0.5, 0.0, 1.0);
+  #include <tonemapping_fragment>
+  #include <encodings_fragment>
+}`;
+function buildSimVolume(){
+  const D = SIM.data, c = D.cfg, h = c.dx/2;
+  const NRt = Math.ceil(c.R/h) + 3, NZt = Math.ceil((c.z1 - c.z0)/h) + 3;
+  if (SIM.vol){ SIM.group.remove(SIM.vol); SIM.vol.geometry.dispose(); SIM.vol.material.dispose(); SIM.volTex.dispose(); }
+  const data = new Uint8Array(NRt*NZt*4);
+  const tex = new THREE.DataTexture(data, NRt, NZt, THREE.RGBAFormat);
+  tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping; tex.needsUpdate = true;
+  const metal = MATS[matKey].metal ?? 0.5;
+  const mtl = new THREE.ShaderMaterial({vertexShader:VOL_VS, fragmentShader:VOL_FS, side:THREE.BackSide, uniforms:{
+    uTex:{value:tex}, uExt:{value:new THREE.Vector2(NRt*h, NZt*h)}, uZ0:{value:c.z0}, uStep:{value:h*0.7},
+    uBMin:{value:new THREE.Vector3()}, uBMax:{value:new THREE.Vector3()}, uMode:{value:0}, uSpec:{value:0.25 + 0.6*metal},
+    uPlateCol:{value:new THREE.Color(D.info.plateCol).convertSRGBToLinear()}, uProjCol:{value:new THREE.Color(D.info.projCol).convertSRGBToLinear()},
+    uL:{value:new THREE.Vector3(0.8, 0.9, 0.5)}, uVP:{value:new THREE.Matrix4()}}});
+  const vol = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mtl); vol.frustumCulled = false;
+  vol.onBeforeRender = (r, sc, cam) => { mtl.uniforms.uVP.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); };
+  SIM.group.add(vol); SIM.vol = vol; SIM.volTex = tex; SIM.volDims = {NRt, NZt, h, z0:c.z0};
+}
+function simField(k){
+  if (SIM.fieldCache.has(k)) return SIM.fieldCache.get(k);
+  const D = SIM.data, f = D.frames[k], N = D.N, {NRt, NZt, h, z0} = SIM.volDims, M = NRt*NZt;
+  const occ = new Float32Array(M), prj = new Float32Array(M), val = new Float32Array(M), brk = new Float32Array(M);
+  const mode = SIM.mode;
+  for (let p=0;p<N;p++){
+    const r = f.P[2*p]; if (r < 0) continue;
+    const fx = r/h - 0.5, fz = (f.P[2*p+1] - z0)/h - 0.5;
+    let i0 = Math.floor(fx), j0 = Math.floor(fz); const wx = fx - i0, wz = fz - j0;
+    const eb = f.I[2*p], sb = f.I[2*p+1];
+    const q = mode === 'spd' ? sb/255 : (eb === 255 ? 1 : eb/254);
+    const isP = p >= D.nPlate ? 1 : 0, isF = eb === 255 ? 1 : 0;
+    for (let a=0;a<2;a++) for (let b=0;b<2;b++){
+      let i = i0 + a; const j = j0 + b; if (i < 0) i = -i - 1;
+      if (i >= NRt || j < 0 || j >= NZt) continue;
+      const w = (a ? wx : 1 - wx)*(b ? wz : 1 - wz), id = j*NRt + i;
+      occ[id] += w; prj[id] += w*isP; val[id] += w*q; brk[id] += w*isF;
+    }
+  }
+  // light 3x3 smoothing of occupancy; attributes become per-texel averages, extended one texel outward so the iso-surface reads clean values
+  const sm = new Float32Array(M);
+  for (let j=0;j<NZt;j++) for (let i=0;i<NRt;i++){
+    let acc = 0, wsum = 0;
+    for (let b=-1;b<=1;b++) for (let a=-1;a<=1;a++){
+      let ii = i + a; const jj = j + b; if (ii < 0) ii = 0; if (ii >= NRt || jj < 0 || jj >= NZt) continue;
+      const w = (a ? 1 : 2)*(b ? 1 : 2); acc += w*occ[jj*NRt + ii]; wsum += w;
+    }
+    sm[j*NRt + i] = acc/16;
+  }
+  const data = new Uint8Array(M*4);
+  let rMax = 0, zMin = 1e9, zMax = -1e9;
+  for (let j=0;j<NZt;j++) for (let i=0;i<NRt;i++){
+    const id = j*NRt + i;
+    let o = occ[id], src = id;
+    if (o < 0.05){ let best = 0.05; for (let b=-1;b<=1;b++) for (let a=-1;a<=1;a++){ const ii = i + a, jj = j + b; if (ii < 0 || ii >= NRt || jj < 0 || jj >= NZt) continue; const n2 = jj*NRt + ii; if (occ[n2] > best){ best = occ[n2]; src = n2; } } }
+    const os = occ[src] || 1;
+    data[4*id] = Math.min(255, Math.round(sm[id]*255));
+    data[4*id+1] = Math.round(Math.min(1, prj[src]/os)*255);
+    data[4*id+2] = Math.round(Math.min(1, val[src]/os)*255);
+    data[4*id+3] = Math.round(Math.min(1, brk[src]/os)*255);
+    if (sm[id] > 0.3){ if (i > rMax) rMax = i; if (j < zMin) zMin = j; if (j > zMax) zMax = j; }
+  }
+  const dense = new Uint8Array(N);
+  for (let p=0;p<N;p++){
+    const r = f.P[2*p]; if (r < 0) continue;
+    const i = Math.min(NRt - 1, Math.max(0, Math.round(r/h - 0.5))), j = Math.min(NZt - 1, Math.max(0, Math.round((f.P[2*p+1] - z0)/h - 0.5)));
+    if (sm[j*NRt + i] > 0.42) dense[p] = 1;
+  }
+  const F = {data, dense, rMax:(rMax + 3)*h, zA:z0 + (zMin - 2)*h, zB:z0 + (zMax + 3)*h, empty: zMax < zMin};
+  SIM.fieldCache.set(k, F);
+  if (SIM.fieldCache.size > 200) SIM.fieldCache.delete(SIM.fieldCache.keys().next().value);
+  return F;
+}
+function applySimField(F){
+  const v = SIM.vol; if (!v) return;
+  v.visible = !F.empty;
+  if (F.empty) return;
+  SIM.volTex.image.data.set(F.data); SIM.volTex.needsUpdate = true;
+  const u = v.material.uniforms;
+  u.uBMin.value.set(-F.rMax, -F.rMax, -F.zB); u.uBMax.value.set(0, F.rMax, -F.zA);
+  u.uMode.value = SIM.mode === 'mat' ? 0 : SIM.mode === 'ep' ? 1 : 2;
+  v.position.set(-F.rMax/2, 0, -(F.zA + F.zB)/2); v.scale.set(F.rMax, 2*F.rMax, F.zB - F.zA);
+}
 function buildSimPoints(){
   const D = SIM.data, N = D.N;
   if (!SIM.group){ SIM.group = new THREE.Group(); scene.add(SIM.group); }
@@ -2097,6 +2239,7 @@ function buildSimPoints(){
   const mtl = new THREE.ShaderMaterial({vertexShader:SIM_VS, fragmentShader:SIM_FS, uniforms:{uSize:{value:D.cfg.dx*0.5}, uDA:{value:Math.PI/(A-1)}, uScale:{value:1}}});
   const pts = new THREE.Points(g, mtl); pts.frustumCulled = false;
   SIM.group.add(pts); SIM.pts = pts; SIM.geo = g;
+  SIM.fieldCache = new Map(); buildSimVolume();
   $('simt').max = D.frames.length - 1;
   setSimFrame(0);
 }
@@ -2125,6 +2268,12 @@ function setSimFrame(k){
     simColor(p < D.nPlate ? 0 : 1, f.I[2*p], f.I[2*p+1], tmp);
     aC.array[3*p] = tmp[0]; aC.array[3*p+1] = tmp[1]; aC.array[3*p+2] = tmp[2];
   }
+  if (SIM.rend === 'surf'){
+    const F = simField(k);
+    applySimField(F);
+    // particles stay visible only where they are isolated (debris, spall, jets); dense material is drawn as a surface
+    for (let p=0;p<N;p++) if (F.dense[p]) aR.array[p] = -1;
+  } else if (SIM.vol) SIM.vol.visible = false;
   aR.needsUpdate = aZ.needsUpdate = aC.needsUpdate = true;
   $('simt').value = k;
   $('simtl').textContent = 't = ' + (f.t*1e6).toFixed(1) + ' µs';
@@ -2151,12 +2300,14 @@ function setSimMode(on){
     if (gelMode){ exitGelScene(); gelMode = false; $('mat').value = 'mild'; matKey = 'mild'; applyTemp(); }
     if (section.on) setSection(false);
     enterSimScene();
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); resize();
     $('simbar').hidden = !SIM.data;
     if (SIM.data) frameSimCamera();
     $('result').hidden = true;
   } else {
     cancelSim(); SIM.playing = false;
     if (SIM.group) SIM.group.visible = false;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); resize();
     $('simbar').hidden = true; $('result').hidden = true;
     buildPlate(); frameCamera();
   }
@@ -2350,7 +2501,8 @@ $('simplay').addEventListener('click', () => {
   SIM.playing = !SIM.playing; $('simplay').textContent = SIM.playing ? '❚❚' : '▶';
 });
 $('simt').addEventListener('input', () => { SIM.playing = false; $('simplay').textContent = '▶'; SIM.ft = +$('simt').value; setSimFrame(+$('simt').value); });
-$('simcol').addEventListener('change', () => { SIM.mode = $('simcol').value; setSimFrame(SIM.frame); });
+$('simcol').addEventListener('change', () => { SIM.mode = $('simcol').value; SIM.fieldCache = new Map(); setSimFrame(SIM.frame); });
+$('simrend').addEventListener('change', () => { SIM.rend = $('simrend').value; setSimFrame(SIM.frame); });
 $('simcancel').addEventListener('click', cancelSim);
 $('simq').addEventListener('change', simEstimateLabel);
 $('logclr').addEventListener('click', () => { logRows.length = 0; $('log').innerHTML = ''; $('logbox').hidden = true; });
