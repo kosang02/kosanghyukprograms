@@ -1,0 +1,2489 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="재질·두께를 정한 판에 탄을 쏴서 관통, 소성 변형, 도탄, 파쇄를 3D로 보는 탄도 시뮬레이터. 공식 모델과 입자(MPM) 시뮬레이션 두 가지 모드.">
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}
+body{margin:0;font-size:14px}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>탄착 시험대</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<style>
+/* Layout: full-height test range — 3D stage fills the view, control sheet docks right (desktop) or below (phone) */
+:root{
+  --bg:#13171d; --stage:#0f1318; --panel:#1a1f27; --line:#2b333f; --fg:#e7eaee; --muted:#8e98a6;
+  --accent:#f2a93b; --pen:#ff6b4f; --dent:#72b6ff; --ric:#c5a3ff;
+  --sans:"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;overflow:hidden}
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 340px}
+.stage{position:relative;min-width:0;min-height:0;background:var(--stage)}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.hud{position:absolute;pointer-events:none;inset:0;padding:14px 16px;display:flex;flex-direction:column;justify-content:flex-start}
+.hud > .result{margin-top:auto}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:3px}
+.modes button{background:transparent;border:0;border-radius:6px;color:var(--muted);padding:7px 6px;font:600 13px var(--sans);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.25}
+.modes button small{font-weight:400;font-size:10.5px;opacity:.8}
+.modes button[aria-selected="true"]{background:var(--panel);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
+.simnote{display:none}
+body:not(.sim) .field.simq{display:none}
+body.sim .simnote{display:block}
+body.sim #curvebox{display:none}
+.simbar{pointer-events:auto;align-self:stretch;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-top:8px}
+.simbar[hidden],.simprog[hidden],.simmsg[hidden]{display:none!important}
+.simbar input[type=range]{flex:1;min-width:120px}
+.simbar select{width:auto;padding:5px 6px;font-size:12px}
+.simtl{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;min-width:6.2em;text-align:right}
+.playbtn{width:34px;padding:6px 0;text-align:center}
+.simbar{flex-wrap:nowrap}
+.note-dd{text-align:left!important;font-family:var(--sans)!important;grid-column:1/-1;color:var(--muted);font-size:11px;line-height:1.45}
+.kv [hidden]{display:none!important}
+@media (max-width:760px){
+  .simbar{padding:4px 6px;gap:6px;margin-top:6px}
+  .simbar select{padding:4px;font-size:11px}
+  .simbar input[type=range]{min-width:60px}
+  .simtl{min-width:5.2em;font-size:11px}
+  .simmsg{font-size:11.5px;padding:6px 8px}
+}
+.simmsg{pointer-events:none;align-self:flex-start;margin-top:8px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;max-width:420px}
+.simprog{pointer-events:auto;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;align-items:stretch;width:min(320px,calc(100% - 32px));font-size:13px}
+.simprog-track{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.simprog-track i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.hud-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.brand h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.01em}
+.brand p{margin:4px 0 0;color:var(--muted);font-size:12px}
+.btn-ghost{pointer-events:auto;background:color-mix(in srgb,var(--panel) 85%,transparent);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 11px;font:600 12px var(--sans);cursor:pointer;white-space:nowrap}
+.btn-ghost:hover{border-color:var(--muted)}
+.result{pointer-events:none;align-self:flex-start;background:color-mix(in srgb,var(--panel) 90%,transparent);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:220px;max-width:100%}
+.result[hidden]{display:none!important}
+.result{pointer-events:auto;cursor:pointer}
+.more{display:none;margin-top:6px;font-size:11px;color:var(--muted)}
+.kv[hidden],.prof[hidden]{display:none!important}
+.prof{display:block;width:100%;max-width:280px;height:auto;margin-top:8px}
+
+.verdict{display:inline-block;font-weight:700;font-size:13px;padding:2px 8px;border-radius:4px;margin-bottom:8px;color:#111}
+.v-pen{background:var(--pen)} .v-blind{background:var(--accent)} .v-dent{background:var(--dent)} .v-ric{background:var(--ric)} .v-pass{background:var(--muted)} .v-shatter{background:var(--pen)} .v-spall{background:var(--accent)} .v-nospall{background:var(--dent)} .v-blast{background:var(--pen)}
+.kv{display:grid;grid-template-columns:auto auto;gap:3px 14px;font-size:12px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.panel{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding-inline:16px;padding-block:14px 24px;display:flex;flex-direction:column;gap:18px}
+.fire-row{display:flex;gap:8px;position:sticky;top:-14px;margin-top:-14px;background:var(--panel);padding-block:14px 10px;z-index:2;box-shadow:0 1px 0 var(--line)}
+.fire{flex:1;background:var(--accent);color:#1a1205;border:0;border-radius:6px;padding:11px;font:700 15px var(--sans);cursor:pointer}
+.fire:active{transform:translateY(1px)}
+.reset{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:0 14px;font:600 13px var(--sans);cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+fieldset{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+legend{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--accent);margin-bottom:10px;padding:0}
+.field{display:flex;flex-direction:column;gap:5px}
+.field-head{display:flex;justify-content:space-between;align-items:baseline;font-size:13px}
+.field-head output{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+.field-head label{color:var(--muted)}
+.hint{font-size:11px;color:var(--muted)}
+.logbox[hidden]{display:none!important}
+.logbox{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.log{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:12px}
+.log li{display:grid;grid-template-columns:2.2em 1fr;column-gap:8px;row-gap:1px;align-items:baseline;min-width:0;padding-block:3px;border-top:1px solid var(--line)}
+.log li:first-child{border-top:0}
+.log li .n{color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.log li .a{min-width:0;color:var(--muted)}
+.log li .v{grid-column:2;font-weight:600}
+.curve{display:block;width:100%;height:auto}
+.curve[hidden]{display:none!important}
+.curve text{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+.linkbtn{background:none;border:0;color:var(--muted);font:12px var(--sans);cursor:pointer;padding:0;text-decoration:underline}
+.sec-row{display:flex;gap:8px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two .field{min-width:0}
+.hud-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.sec-row .reset{padding:8px 12px}
+.toggle{flex:1;background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font:600 13px var(--sans);cursor:pointer}
+.toggle[aria-pressed="true"]{background:var(--accent);color:#1a1205;border-color:var(--accent)}
+select{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font:14px var(--sans)}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.predict{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.predict .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.predict .bar i{position:absolute;inset:0 auto 0 0;background:var(--dent);border-radius:3px}
+.predict .bar::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--fg);opacity:.6}
+.predict-top{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.predict-top b{color:var(--fg);font-weight:600}
+.note{font-size:11.5px;line-height:1.6;color:var(--muted);margin:0;max-width:65ch}
+.note code{font-family:var(--mono);color:var(--fg);font-size:11px}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,44%)}
+  .panel{border-left:0;border-top:1px solid var(--line)}
+  .result{min-width:0;padding:8px 10px}
+  .result .kv{font-size:11.5px}
+  .result:not(.open) .x{display:none}
+  .more{display:block}
+  .verdict{margin-bottom:6px}
+  .brand p{display:none}
+}
+@media (prefers-reduced-motion:reduce){.fire:active{transform:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="3D 판 충격 시뮬레이션. 판을 탭하면 그 지점으로 발사합니다."></canvas>
+    <div class="hud">
+      <div class="hud-top">
+        <div class="brand">
+          <h1>탄착 시험대</h1>
+          <p>판을 탭하면 그 지점에 발사 · 드래그로 회전 · 핀치/휠로 확대</p>
+        </div>
+        <div class="hud-btns">
+          <button class="btn-ghost" id="snd" type="button" aria-pressed="true">소리 켬</button>
+          <button class="btn-ghost" id="flip" type="button">뒷면 보기</button>
+        </div>
+      </div>
+      <div class="simbar" id="simbar" hidden>
+        <button class="btn-ghost playbtn" id="simplay" type="button" aria-label="일시정지">❚❚</button>
+        <input type="range" id="simt" min="0" max="1" step="1" value="0" aria-label="재생 위치">
+        <span id="simtl" class="simtl">t = 0 µs</span>
+        <select id="simcol" aria-label="색 표시">
+          <option value="mat">재질</option><option value="ep">소성 변형</option><option value="spd">속도</option>
+        </select>
+      </div>
+      <div class="simmsg" id="simmsg" hidden></div>
+      <div class="simprog" id="simprog" hidden>
+        <div id="simprog-t">입자 계산 중…</div>
+        <div class="simprog-track"><i id="simprog-bar"></i></div>
+        <button class="btn-ghost" id="simcancel" type="button">취소</button>
+      </div>
+      <div class="result" id="result" hidden role="button" tabindex="0" aria-expanded="false" title="탭해서 자세히 보기">
+        <span class="verdict" id="r-verdict">—</span>
+        <dl class="kv" id="r-kv">
+          <dt>운동에너지</dt><dd id="r-e">—</dd>
+          <dt>관통 필요 에너지</dt><dd id="r-epen">—</dd>
+          <dt class="x">충격압 / 표적 저항</dt><dd class="x" id="r-pr">—</dd>
+          <dt class="x">관통 기구</dt><dd class="x" id="r-mode">—</dd>
+          <dt>관입 깊이</dt><dd id="r-depth">—</dd>
+          <dt>잔류 속도</dt><dd id="r-vr">—</dd>
+          <dt class="x">최대 변형 깊이</dt><dd class="x" id="r-def">—</dd>
+          <dt class="x">손상 보정</dt><dd class="x" id="r-dmg">—</dd>
+          <dt class="x">판 고유진동수</dt><dd class="x" id="r-hz">—</dd>
+          <dt class="x">증거판 타격</dt><dd class="x" id="r-wit">—</dd>
+          <dt class="x">누적 발수</dt><dd class="x" id="r-n">—</dd>
+        </dl>
+        <dl class="kv" id="s-kv" hidden>
+          <dt>잔류 속도</dt><dd id="s-vres">—</dd>
+          <dt>관입 깊이</dt><dd id="s-depth">—</dd>
+          <dt class="x">탄자 온전 질량</dt><dd class="x" id="s-intact">—</dd>
+          <dt class="x">공식 모델 예측</dt><dd class="x" id="s-formula">—</dd>
+          <dt class="x" id="s-note-l" hidden>참고</dt><dd class="x note-dd" id="s-note" hidden>—</dd>
+          <dt class="x">후면 돌출</dt><dd class="x" id="s-bulge">—</dd>
+          <dt class="x">판에서 떨어져 나간 질량</dt><dd class="x" id="s-lost">—</dd>
+          <dt class="x">해상도</dt><dd class="x" id="s-res">—</dd>
+          <dt class="x">계산량</dt><dd class="x" id="s-perf">—</dd>
+        </dl>
+        <dl class="kv" id="g-kv" hidden>
+          <dt>관입 깊이</dt><dd id="g-depth">—</dd>
+          <dt>최대 순간공동 지름</dt><dd id="g-tc">—</dd>
+          <dt>요잉 시작 깊이</dt><dd id="g-yaw">—</dd>
+          <dt>파편화</dt><dd id="g-frag">—</dd>
+          <dt>회수 탄자</dt><dd id="g-state">—</dd>
+          <dt class="x">영구공동 평균 지름</dt><dd class="x" id="g-pc">—</dd>
+          <dt class="x">블록 내 에너지 전달</dt><dd class="x" id="g-edep">—</dd>
+          <dt class="x">출구 속도</dt><dd class="x" id="g-exit">—</dd>
+        </dl>
+        <svg id="g-prof" class="prof x" viewBox="0 0 260 64" hidden aria-label="깊이별 공동 크기"></svg>
+        <div class="more" id="r-more">자세히 ▾</div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <div class="modes" role="tablist" aria-label="계산 방식">
+      <button type="button" role="tab" data-mode="formula" aria-selected="true">공식 모델<small>빠름 · 모든 탄종</small></button>
+      <button type="button" role="tab" data-mode="sim" aria-selected="false">입자 시뮬레이션<small>정면 충돌 · 운동에너지탄</small></button>
+    </div>
+    <div class="field simq">
+      <div class="field-head"><label for="simq">계산 정밀도</label><output id="o-simq"></output></div>
+      <select id="simq">
+        <option value="fast">빠름 · 수 초</option>
+        <option value="normal" selected>보통 · 수 초~수십 초</option>
+        <option value="fine">정밀 · 최대 몇 분</option>
+      </select>
+    </div>
+    <p class="note simnote" id="simnote">판과 탄을 입자로 나눠 힘과 변형을 직접 계산합니다. 정면 충돌만, 반쪽을 잘라낸 단면으로 보여줍니다.</p>
+    <div class="fire-row">
+      <button class="fire" id="fire" type="button">발사</button>
+      <button class="reset" id="reset" type="button">판 교체</button>
+    </div>
+
+    <div class="logbox" id="logbox" hidden>
+      <div class="predict-top"><span>탄착 기록</span><button class="linkbtn" id="logclr" type="button">지우기</button></div>
+      <ol class="log" id="log"></ol>
+    </div>
+
+    <div class="predict" aria-live="polite">
+      <div class="predict-top"><span>현재 설정 예측</span><b id="p-verdict">—</b></div>
+      <div class="bar"><i id="p-bar"></i></div>
+      <div class="predict-top"><span id="p-e">E —</span><span id="p-epen">관통 —</span></div>
+    </div>
+
+    <div class="logbox" id="curvebox">
+      <div class="predict-top"><span>관통 곡선 · 사거리 × 두께</span><button class="linkbtn" id="curvebtn" type="button" aria-expanded="false">보기</button></div>
+      <svg id="curve" class="curve" viewBox="0 0 300 196" hidden role="img" aria-label="사거리에 따른 관통 한계 두께"></svg>
+      <div class="hint" id="curvehint" hidden></div>
+    </div>
+
+    <fieldset>
+      <legend>사격</legend>
+      <div class="two">
+        <div class="field">
+          <div class="field-head"><label for="mode">사격 방식</label></div>
+          <select id="mode"><option value="1">단발</option><option value="3">3점사</option><option value="10">연사 10발</option><option value="30">연사 30발</option></select>
+        </div>
+        <div class="field">
+          <div class="field-head"><label for="speed">재생 속도</label></div>
+          <select id="speed"><option value="0.25">아주 느리게</option><option value="0.5">느리게</option><option value="1" selected>보통</option><option value="2">빠르게</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="spread">탄착 분산</label><output id="o-spread"></output></div>
+        <input type="range" id="spread" min="0" max="8" step="0.25" value="1.5">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>단면 보기</legend>
+      <div class="sec-row">
+        <button class="toggle" id="sec" type="button" aria-pressed="false">단면 켜기</button>
+        <button class="reset" id="sec-snap" type="button">마지막 탄착점</button>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="secpos">절단 위치 (가로)</label><output id="o-sec"></output></div>
+        <input type="range" id="secpos" min="-48" max="48" step="0.5" value="0">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>표적 판</legend>
+      <div class="field">
+        <div class="field-head"><label for="mat">재질</label></div>
+        <select id="mat"></select>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="thk">두께</label><output id="o-thk"></output></div>
+        <input type="range" id="thk" min="0" max="1000" step="1" value="360" aria-describedby="thk-hint">
+        <div id="thk-hint" class="hint">0.5 mm – 500 mm (로그 눈금)</div>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="size">한 변 길이</label><output id="o-size"></output></div>
+        <input type="range" id="size" min="20" max="100" step="5" value="50">
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="temp">판 온도</label><output id="o-temp"></output></div>
+        <input type="range" id="temp" min="-80" max="700" step="5" value="20">
+      </div>
+      <button class="toggle" id="wit" type="button" aria-pressed="false">증거판 세우기</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>발사체</legend>
+      <div class="field">
+        <div class="field-head"><label for="ammo">프리셋</label></div>
+        <select id="ammo"></select>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="mass">질량</label><output id="o-mass"></output></div>
+        <input type="range" id="mass" min="0" max="1000" step="1" value="320">
+        <div class="hint">0.1 g – 10 kg (로그 눈금)</div>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="vel">속도</label><output id="o-vel"></output></div>
+        <input type="range" id="vel" min="30" max="3000" step="5" value="920">
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="dia">직경</label><output id="o-dia"></output></div>
+        <input type="range" id="dia" min="3" max="170" step="0.1" value="5.7">
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="core">탄심</label></div>
+        <select id="core">
+          <option value="plastic">플라스틱 (BB탄)</option>
+          <option value="lead">납 (연질)</option>
+          <option value="steel">강철</option>
+          <option value="tungsten">텅스텐 (철갑)</option>
+          <option value="du">열화우라늄</option>
+          <option value="hp">할로포인트 (확장형)</option>
+          <option value="heat">성형작약 (HEAT)</option>
+          <option value="hesh">점착유탄 (HESH)</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="ang">입사각 (판 법선 기준)</label><output id="o-ang"></output></div>
+        <input type="range" id="ang" min="0" max="75" step="1" value="0">
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="range">사거리</label><output id="o-range"></output></div>
+        <input type="range" id="range" min="0" max="2000" step="10" value="0">
+      </div>
+    </fieldset>
+
+    <p class="note">단순화 모델입니다. 관통 필요 에너지는 얇은 판은 전단 플러깅식 <code>E = ½·π·d·t²·τ·k</code> (τ = 0.6×인장강도, k = 4), 두꺼운 판은 침식 관입식 <code>E = R·π·d²·t</code> (R = 6×인장강도) 중 작은 값으로 잡고, 경사 입사는 유효두께 <code>t/cosθ</code>로 반영합니다. 관통하지 못한 에너지는 소성 변형(접시형 함몰)으로 흡수된다고 가정합니다. 기존 구멍 가장자리·균열·관입 자리를 다시 맞히면 남은 두께가 줄어든 것으로 계산하고, 판이 울리는 소리는 고정 사각판 1차 고유진동수 <code>f ≈ 1.654·t/a²·√(E/ρ(1−ν²))</code>와 그 상위 모드로 합성합니다. 탄이 표적에 파고들지는 Tate 판정 <code>½·ρ<sub>탄</sub>·v² + Y<sub>탄</sub> &gt; R<sub>표적</sub></code> (R ≈ 4×항복강도)으로 거르고, 이를 못 넘으면 탄이 뭉개지거나 깨져 관통 능력을 잃습니다. 성형작약(HEAT)은 운동에너지가 아니라 금속 제트로 뚫는다고 보고, 장갑강 환산 관통력을 탄 직경의 약 5배로 둔 뒤 표적 밀도에 따라 <code>√(ρ<sub>강</sub>/ρ<sub>표적</sub>)</code>로 보정합니다. 점착유탄(HESH)은 표면에서 터진 충격파가 뒷면에서 반사되며 인장파가 되고, 그 압력 <code>P₀·e<sup>−t/0.9d</sup></code>가 박리강도(인장강도의 약 3배)를 넘으면 뒷면이 떨어져 나간다고 봅니다. 판 온도는 강도에 반영되며(저온에서 강화, 고온에서 연화), 페라이트계 강(연강·방탄강·RHA)은 연성-취성 천이온도 아래에서 깨지는 재료로 바뀝니다. 실제 방호 성능 판정에 쓰면 안 됩니다. 애니메이션은 슬로모션입니다.</p>
+  </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/environments/RoomEnvironment.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+
+const MATS = {
+  mild:  {E:200e9, ring:1.6, name:'연강 (SS400)',        ys:245e6,  uts:400e6,  rho:7850, color:0x9ea5ae, metal:0.9,  rough:0.36, petals:4, holeK:1.05, petalK:1.6, spark:true},
+  ar500: {E:205e9, ring:1.8, name:'방탄강 (AR500)',      ys:1400e6, uts:1700e6, rho:7850, color:0x707985, metal:0.9,  rough:0.3,  petals:3, holeK:1.0,  petalK:0.7, spark:true},
+  al:    {E:69e9, ring:1.4, name:'알루미늄 6061-T6',    ys:276e6,  uts:310e6,  rho:2700, color:0xc9ced5, metal:0.95, rough:0.28, petals:6, holeK:1.1,  petalK:2.0, spark:false},
+  ti:    {E:114e9, ring:1.5, name:'티타늄 Ti-6Al-4V',    ys:880e6,  uts:950e6,  rho:4430, color:0x948e88, metal:0.85, rough:0.34, petals:5, holeK:1.0,  petalK:1.2, spark:true},
+  rha:   {E:207e9, ring:1.6, name:'압연균질장갑 (RHA)',   ys:950e6,  uts:1100e6, rho:7850, color:0x5f6b5a, metal:0.8,  rough:0.45, petals:3, holeK:1.0,  petalK:0.9, spark:true},
+  sus:   {E:193e9, ring:1.5, name:'스테인리스 304',        ys:215e6,  uts:505e6,  rho:8000, color:0xb5bcc4, metal:0.95, rough:0.22, petals:5, holeK:1.05, petalK:1.8, spark:true},
+  cu:    {E:117e9, ring:1.0, name:'구리',                  ys:70e6,   uts:210e6,  rho:8960, color:0xc77b4a, metal:0.95, rough:0.3,  petals:6, holeK:1.15, petalK:2.2, spark:false},
+  pb:    {E:16e9, ring:0.08, name:'납판',                  ys:10e6,   uts:18e6,   rho:11340,color:0x6c7178, metal:0.6,  rough:0.6,  petals:7, holeK:1.3,  petalK:2.4, spark:false},
+  ceram: {E:370e9, ring:0.5, name:'세라믹 (알루미나)',      ys:2000e6, uts:2000e6, rho:3900, color:0xe6e1d7, metal:0.0,  rough:0.55, petals:10,holeK:2.6,  petalK:0.5, spark:false, brittle:true, Gc:40},
+  pc:    {E:2.4e9, ring:0.12, name:'폴리카보네이트 (투명)',  ys:62e6,   uts:65e6,   rho:1200, color:0xcfe6f2, metal:0.0,  rough:0.08, petals:6, holeK:0.95, petalK:1.4, spark:false, opacity:0.45},
+  glass: {E:70e9, ring:0.9, name:'판유리',               ys:500e6,  uts:50e6,   rho:2500, color:0xd3ecec, metal:0.0,  rough:0.04, petals:12,holeK:2.0,  petalK:0.4, spark:false, brittle:true, opacity:0.3, Gc:10},
+  tglass:{E:70e9, ring:0.9, name:'강화유리',             ys:500e6,  uts:120e6,  rho:2500, color:0xc9e6e8, metal:0.0,  rough:0.04, petals:12,holeK:1.6,  petalK:0.3, spark:false, brittle:true, opacity:0.3, Gc:10, tempered:true},
+  wood:  {E:10e9, ring:0.1, name:'합판 (목재)',          ys:30e6,   uts:40e6,   rho:600,  color:0xb88a57, metal:0.0,  rough:0.85, petals:9, holeK:1.7,  petalK:1.0, spark:false},
+  conc:  {E:30e9, ring:0.05, name:'콘크리트',              ys:30e6,   uts:25e6,   rho:2400, color:0x9a978f, metal:0.0,  rough:0.95, petals:11,holeK:2.4,  petalK:0.6, spark:false, brittle:true, Gc:300},
+  ice:   {E:9e9, ring:0.35, name:'얼음',                  ys:5e6,    uts:4e6,    rho:917,  color:0xbfe3f5, metal:0.0,  rough:0.15, petals:12,holeK:2.8,  petalK:0.5, spark:false, brittle:true, opacity:0.6, Gc:5},
+  gel:   {E:1e6, ring:0.05, name:'발리스틱 젤 (10%, 40cm 블록)', ys:2.5e6, uts:2.5e6, rho:1030, color:0xe9b35a, metal:0.0, rough:0.2, petals:6, holeK:1, petalK:1, spark:false, gel:true},
+};
+const AMMO = {
+  r556:  {name:'5.56×45mm 보통탄 (M855)', m:4.0,  v:920, d:5.7,  core:'steel'},
+  r762:  {name:'7.62×51mm 보통탄 (M80)',  m:9.5,  v:840, d:7.8,  core:'lead'},
+  r9:    {name:'9×19mm 권총탄',           m:8.0,  v:360, d:9.0,  core:'lead'},
+  r9hp:  {name:'9×19mm 할로포인트',        m:8.0,  v:360, d:9.0,  core:'hp'},
+  r127:  {name:'12.7×99mm 보통탄 (M33)',  m:42,   v:890, d:12.9, core:'steel'},
+  ap762: {name:'7.62mm 철갑탄 (텅스텐)',  m:8.4,  v:900, d:7.8,  core:'tungsten'},
+  bb:    {name:'에어소프트 BB 0.25g',     m:0.25, v:95,  d:6.0,  core:'plastic'},
+  r145:  {name:'14.5×114mm 철갑소이탄',   m:64,   v:1000,d:14.9, core:'steel'},
+  r20:   {name:'20mm 벌컨 철갑소이탄',    m:100,  v:1030,d:20,   core:'steel'},
+  r30:   {name:'30mm 열화우라늄 철갑 (근사)', m:300, v:1010,d:16, core:'du'},
+  apfsds:{name:'120mm 날개안정분리철갑탄 (근사)', m:4500, v:1650, d:25, core:'tungsten'},
+  rail:  {name:'가상 전자기 레일건',        m:3200, v:2500,d:40,   core:'tungsten'},
+  heat66:{name:'66mm 대전차 로켓 HEAT (근사)',  m:1000, v:145, d:66, core:'heat'},
+  heat85:{name:'85mm 대전차 로켓 HEAT (근사)',  m:2200, v:150, d:85, core:'heat'},
+  heat120:{name:'120mm 전차 HEAT (근사)',       m:10000,v:1140,d:120, core:'heat'},
+  hesh105:{name:'105mm 점착유탄 HESH (근사)',    m:10000,v:730, d:105, core:'hesh'},
+  hesh120:{name:'120mm 점착유탄 HESH (근사)',    m:10000,v:670, d:120, core:'hesh'},
+  hesh165:{name:'165mm 공병 파쇄탄 HESH (근사)', m:10000,v:260, d:165, core:'hesh'},
+  custom:{name:'사용자 정의'}
+};
+// k: energy-to-work efficiency (jacket/core deformation losses), rho: core density, Y: dynamic flow strength
+const CORE = {
+  plastic: {k:0.4,  rho:1000,  Y:0.06e9},
+  lead:    {k:0.75, rho:11340, Y:0.03e9},
+  steel:   {k:1.0,  rho:7850,  Y:1.2e9},
+  tungsten:{k:1.25, rho:17500, Y:2.0e9},
+  du:      {k:1.3,  rho:18600, Y:1.6e9},
+  hp:      {k:0.7,  rho:11340, Y:0.03e9},
+  heat:    {k:1.0,  rho:8900,  Y:1e9},
+  hesh:    {k:1.0,  rho:1700,  Y:0.05e9}
+};
+const K = 4;
+
+for (const [k,m] of Object.entries(MATS)) $('mat').add(new Option(m.name,k));
+const MATS_BASE = JSON.parse(JSON.stringify(MATS));
+// ferritic (BCC) steels lose toughness below their ductile-brittle transition; FCC metals (Al, Cu, austenitic stainless) do not
+const DBTT = {mild:0, ar500:-40, rha:-50};
+const HOT_SOFT = {mild:0.0011, ar500:0.0013, rha:0.0012, sus:0.0009, ti:0.0010, al:0.0022, cu:0.0012, pb:0.004, pc:0.008, wood:0.0015};
+function applyTemp(){
+  const tC = +$('temp').value, b = MATS_BASE[matKey], M = Object.assign({}, b);
+  let f = 1;
+  if (HOT_SOFT[matKey] != null){
+    const steel = DBTT[matKey] != null || matKey === 'sus';
+    f = tC < 20 ? 1 + (steel ? 0.0035 : 0.0015)*(20 - tC) : Math.max(0.1, 1 - HOT_SOFT[matKey]*(tC - 20));
+  }
+  M.ys = b.ys*f; M.uts = b.uts*f;
+  if (DBTT[matKey] != null && tC < DBTT[matKey]){
+    M.brittle = true; M.coldBrittle = true;
+    M.Gc = 8000*Math.max(0.25, 1 - (DBTT[matKey] - tC)/70);
+    M.petals = 9; M.holeK = b.holeK*1.35; M.petalK = b.petalK*0.4;
+  }
+  const col = new THREE.Color(b.color);
+  if (tC < -10) col.lerp(new THREE.Color(0xe6f0f8), Math.min(0.45, (-10 - tC)/130));
+  M.color = col.getHex();
+  M.emissive = tC > 420 ? new THREE.Color().setHSL(0.02 + Math.min(0.07, (tC - 420)/4000), 1, 0.45).getHex() : 0;
+  M.emI = tC > 420 ? Math.min(1.4, (tC - 420)/250) : 0;
+  M.tempF = f; M.tempC = tC;
+  MATS[matKey] = M;
+}
+function tempLabel(){
+  const tC = +$('temp').value, M = MATS[matKey];
+  let st = '';
+  if (M.gel) st = '';
+  else if (M.coldBrittle) st = ' · 저온 취성';
+  else if (M.tempF > 1.01) st = ' · 강도 ×' + M.tempF.toFixed(2);
+  else if (M.tempF < 0.99) st = ' · 고온 연화 ×' + M.tempF.toFixed(2);
+  $('o-temp').textContent = tC + ' °C' + st;
+}
+for (const [k,a] of Object.entries(AMMO)) $('ammo').add(new Option(a.name,k));
+$('mat').value = 'mild'; $('ammo').value = 'r556'; $('core').value = 'steel';
+
+/* ---------- renderer / scene ---------- */
+const stage = $('stage'), cv = $('cv');
+const renderer = new THREE.WebGLRenderer({canvas:cv, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f1318);
+scene.fog = new THREE.Fog(0x0f1318, 2.5, 7);
+if (THREE.RoomEnvironment) {
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+}
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x1a1410, 0.35));
+const key = new THREE.DirectionalLight(0xfff1dc, 1.6); key.position.set(-1.2, 1.4, 1.1); scene.add(key);
+const rim = new THREE.DirectionalLight(0x8fb8ff, 0.6); rim.position.set(1.5, 0.3, -1.5); scene.add(rim);
+
+const camera = new THREE.PerspectiveCamera(40, 1, 0.005, 50);
+const controls = new THREE.OrbitControls(camera, cv);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+
+const grid = new THREE.GridHelper(6, 60, 0x2b333f, 0x1d232c);
+scene.add(grid);
+
+/* ---------- plate state ---------- */
+const SEG = 170;
+let S = 0.5, T = 0.006, matKey = 'mild';
+let geo, geoB, front, back, mat, perm, permB, mode, frameGroup;
+let remnants = [];
+let shots = 0, lastImpact = null;
+const MAXH = 48, MAXM = 64;
+const U = {
+  uHoles:{value:Array.from({length:MAXH},()=>new THREE.Vector4())}, uHoleCount:{value:0},
+  uMarks:{value:Array.from({length:MAXM},()=>new THREE.Vector4())}, uMarkCount:{value:0},
+  uPetals:{value:4}, uBrittle:{value:0}, uDepth:{value:new Array(48).fill(0)}
+};
+let holes = [], marks = [];
+const tubeMat = new THREE.MeshStandardMaterial({color:0x2a2622, metalness:0.4, roughness:0.8, side:THREE.DoubleSide});
+const clipPlane = new THREE.Plane(new THREE.Vector3(-1,0,0), 1e3);
+renderer.localClippingEnabled = true;
+tubeMat.clippingPlanes = [clipPlane];
+const section = {on:false, c:0};
+function disposeTree(o){ o.traverse(c => { if (c.geometry) c.geometry.dispose(); }); if (o.material) o.material.dispose(); }
+function makeTubeMat(cx, cy){
+  const m = new THREE.MeshStandardMaterial({color:0x2a2622, metalness:0.4, roughness:0.8, side:THREE.DoubleSide, clippingPlanes:[clipPlane]});
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uHoles = U.uHoles; sh.uniforms.uHoleCount = U.uHoleCount; sh.uniforms.uDepth = U.uDepth;
+    sh.uniforms.uSelf = {value:new THREE.Vector2(cx, cy)};
+    sh.vertexShader = 'varying vec3 vW;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = (modelMatrix * vec4(position, 1.0)).xyz;');
+    sh.fragmentShader = `uniform vec4 uHoles[${MAXH}]; uniform float uDepth[${MAXH}]; uniform int uHoleCount; uniform vec2 uSelf; varying vec3 vW;\n` +
+      sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        for (int i=0;i<${MAXH};i++){ if (i>=uHoleCount) break;
+          vec4 h = uHoles[i];
+          if (distance(h.xy, uSelf) < 1e-5) continue;
+          if (distance(vW.xy, h.xy) < abs(h.z)*1.075 && vW.z > -uDepth[i]) discard;
+        }`);
+  };
+  return m;
+}
+function tubeFor(h){
+  if (h.backBlind){
+    const tv = Math.max(T, 0.0015), zb = sampleZB(h.x, h.y) - tv;
+    if (!h.tube || h.tube.userData.r !== h.r){
+      if (h.tube){ scene.remove(h.tube); disposeTree(h.tube); }
+      const m = new THREE.Mesh(new THREE.CircleGeometry(h.r*1.12, 40), makeTubeMat(h.x, h.y)); m.userData = {r:h.r}; scene.add(m); h.tube = m;
+    }
+    h.tube.position.set(h.x, h.y, zb + Math.min(h.depth, tv*0.97));
+    return;
+  }
+  // No bore walls: a through-hole is simply open. A blind crater only gets its dark floor.
+  if (!h.blind){
+    if (h.tube){ scene.remove(h.tube); disposeTree(h.tube); h.tube = null; }
+    return;
+  }
+  const tv = Math.max(T, 0.0015), zf = sampleZ(h.x, h.y), zb = sampleZB(h.x, h.y) - tv;
+  const len = Math.max(tv*0.02, Math.min(h.depth, zf - zb - tv*0.02));
+  if (!h.tube || h.tube.userData.r !== h.r){
+    if (h.tube){ scene.remove(h.tube); disposeTree(h.tube); }
+    const m = new THREE.Mesh(new THREE.CircleGeometry(h.r*1.02, 36), makeTubeMat(h.x, h.y));
+    m.userData = {r:h.r};
+    scene.add(m); h.tube = m;
+  }
+  h.tube.position.set(h.x, h.y, zf - len);
+  if (h.rem){ const hh = h.rem.userData.h; h.rem.position.set(h.x, h.y, zf - len + hh/2); }
+}
+function dropHole(h){
+  if (h.tube){ scene.remove(h.tube); disposeTree(h.tube); }
+  if (h.rem){ scene.remove(h.rem); h.rem.geometry.dispose(); }
+}
+// A new hit that overlaps an existing hole works on that hole: deepens a crater,
+// widens it, or turns it into a through-hole. Keeps damage history from being lost.
+function mergeHole(x, y, r, blind, depth, heat){
+  let best = null, bd = 1e9;
+  for (const h of holes){ const d = Math.hypot(x-h.x, y-h.y); if (d < h.r + r*0.5 && d < bd){ best = h; bd = d; } }
+  if (best){
+    best.r = Math.min(S*0.2, Math.max(best.r, Math.min(best.r*1.2, bd + r*0.8)));
+    best.heat = Math.max(best.heat, heat);
+    if (!blind){
+      best.blind = false;
+      if (best.rem){ scene.remove(best.rem); best.rem.geometry.dispose(); best.rem = null; }
+    } else if (best.blind) best.depth = Math.max(best.depth, depth);
+    return best;
+  }
+  const h = {x, y, r, blind, depth, heat};
+  holes.push(h);
+  if (holes.length > MAXH) dropHole(holes.shift());
+  return h;
+}
+function removeRemnantsNear(x, y, r){
+  for (let i=remnants.length-1;i>=0;i--){ const m = remnants[i]; if (Math.hypot(m.userData.x-x, m.userData.y-y) < r){ scene.remove(m); m.geometry.dispose(); remnants.splice(i,1); } }
+}
+function refreshAttachments(){
+  for (const h of holes) tubeFor(h);
+  for (const m of remnants) m.position.z = sampleZ(m.userData.x, m.userData.y) + m.userData.lift;
+}
+const remMat = new THREE.MeshStandardMaterial({color:0xa9763a, metalness:0.75, roughness:0.4, clippingPlanes:[clipPlane]});
+function addRemnant(x, y, lift, r1, r2, h){
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, 18), remMat);
+  m.rotation.x = Math.PI/2; m.userData = {x, y, lift};
+  m.position.set(x, y, sampleZ(x, y) + lift); scene.add(m); remnants.push(m);
+  if (remnants.length > MAXM){ const o = remnants.shift(); scene.remove(o); o.geometry.dispose(); }
+}
+let thkOverride = null;
+function thkM(){
+  if (thkOverride != null) return thkOverride;
+  const v = +$('thk').value, mm = 0.5*Math.pow(1000, v/1000);
+  const r = mm < 10 ? Math.round(mm*10)/10 : mm < 100 ? Math.round(mm) : Math.round(mm/5)*5;
+  return r/1000;
+}
+
+function makeMaterial(M, isBack){
+  const m = new THREE.MeshStandardMaterial({color:M.color, metalness:M.metal, roughness:M.rough, transparent:!!M.opacity, opacity:M.opacity||1, depthWrite:!M.opacity, emissive:M.emissive || 0, emissiveIntensity:M.emI || 0, clippingPlanes:[clipPlane]});
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.uniforms.uIsBack = {value: isBack ? 1 : 0};
+    sh.vertexShader = 'varying vec2 vLocal;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = position.xy;');
+    sh.fragmentShader = `uniform vec4 uHoles[${MAXH}]; uniform int uHoleCount; uniform vec4 uMarks[${MAXM}]; uniform int uMarkCount; uniform float uPetals; uniform float uBrittle; uniform float uIsBack; varying vec2 vLocal;\n` +
+      sh.fragmentShader
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float glow = 0.0;
+        for(int i=0;i<${MAXH};i++){ if(i>=uHoleCount) break;
+          vec4 h = uHoles[i]; vec2 dv = vLocal - h.xy; float d = length(dv);
+          bool blind = h.z < 0.0;
+          if (blind && uIsBack > 0.5) continue;
+          if (h.w < -1.5 && uIsBack < 0.5) continue;
+          float a = atan(dv.y, dv.x);
+          float irr = h.w < 0.0 ? 1.4 : 1.0;
+          float rr = abs(h.z) * (1.0 + irr*(0.045*sin(a*uPetals + float(i)*1.7) + 0.025*sin(a*13.0+float(i))));
+          if(d < rr) discard;
+          float ring = 1.0 - smoothstep(rr, rr*2.4, d);
+          glow = max(glow, max(h.w, 0.0) * ring);
+          diffuseColor.rgb *= mix(1.0, 0.42, ring);
+          if (uBrittle > 0.5){ float cr = rr*7.0; if (d < cr){
+            float l = abs(sin(a*5.0 + float(i)*2.3 + sin(d/rr*1.7)*0.6));
+            float line = (1.0 - smoothstep(0.0, 0.07, l)) * (1.0 - d/cr);
+            diffuseColor.rgb *= 1.0 - 0.75*line; } }
+        }
+        for(int i=0;i<${MAXM};i++){ if(i>=uMarkCount) break;
+          vec4 mk = uMarks[i]; float d = length(vLocal - mk.xy);
+          glow = max(glow, mk.w * (1.0 - smoothstep(mk.z*0.3, mk.z*1.8, d)));
+          diffuseColor.rgb *= mix(1.0, 0.5, 1.0 - smoothstep(mk.z*0.35, mk.z, d));
+          if (uBrittle > 0.5){ float cr = mk.z*5.0; if (d < cr){
+            vec2 dv = vLocal - mk.xy; float a = atan(dv.y, dv.x);
+            float l = abs(sin(a*4.0 + float(i)*1.9 + sin(d/mk.z*2.1)*0.5));
+            float line = (1.0 - smoothstep(0.0, 0.07, l)) * (1.0 - d/cr);
+            diffuseColor.rgb *= 1.0 - 0.7*line; } }
+        }`)
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0,0.42,0.12) * glow * 2.2;');
+  };
+  return m;
+}
+
+function buildPlate(){
+  if (front){ scene.remove(front, back, frameGroup); geo.dispose(); geoB.dispose(); mat.dispose(); back.material.dispose(); }
+  const M = MATS[matKey];
+  U.uPetals.value = M.petals; U.uBrittle.value = M.brittle ? 1 : 0;
+  geo = new THREE.PlaneGeometry(S, S, SEG, SEG);
+  const n = geo.attributes.position.count, p = geo.attributes.position.array;
+  perm = new Float32Array(n); permB = new Float32Array(n); mode = new Float32Array(n);
+  for (let i=0;i<n;i++){ const x=p[i*3], y=p[i*3+1]; mode[i] = Math.cos(Math.PI*x/S)*Math.cos(Math.PI*y/S); }
+  mat = makeMaterial(M);
+  front = new THREE.Mesh(geo, mat);
+  const backMat = makeMaterial(M, true); backMat.side = THREE.BackSide;
+  capMat.color.set(M.color).lerp(new THREE.Color(0xffffff), 0.15);
+  geoB = geo.clone();
+  back = new THREE.Mesh(geoB, backMat);
+  back.position.z = -Math.max(T, 0.0015);
+  scene.add(front, back);
+
+  frameGroup = new THREE.Group();
+  const fw = S*0.06, fd = Math.max(T, 0.0015) + S*0.035;
+  const fm = new THREE.MeshStandardMaterial({color:0x2c323a, metalness:0.7, roughness:0.55, clippingPlanes:[clipPlane]});
+  const z0 = -Math.max(T,0.0015)/2;
+  const bars = [[0, S/2+fw/2-fw*0.25, S+fw*1.5, fw],[0, -S/2-fw/2+fw*0.25, S+fw*1.5, fw],[S/2+fw/2-fw*0.25, 0, fw, S],[-S/2-fw/2+fw*0.25, 0, fw, S]];
+  for (const [x,y,w,h] of bars){ const b = new THREE.Mesh(new THREE.BoxGeometry(w,h,fd), fm); b.position.set(x,y,z0); frameGroup.add(b); }
+  const legH = S*0.45, floorY = -S/2 - fw - legH;
+  for (const sx of [-1,1]){ const l = new THREE.Mesh(new THREE.BoxGeometry(fw*0.7, legH, fw*0.7), fm); l.position.set(sx*S*0.35, -S/2-fw/2-legH/2, z0); frameGroup.add(l);
+    const f = new THREE.Mesh(new THREE.BoxGeometry(fw*0.9, fw*0.25, S*0.5), fm); f.position.set(sx*S*0.35, floorY, z0); frameGroup.add(f); }
+  scene.add(frameGroup);
+  grid.position.y = floorY - fw*0.12; grid.scale.setScalar(S/0.5);
+
+  holes.forEach(dropHole);
+  shards.forEach(sd => { scene.remove(sd.m); sd.m.geometry.dispose(); }); shards.length = 0;
+  if (shardMat) shardMat.dispose(); shardMat = null;
+  plateGone = false; crackAcc = 0;
+  holes = []; marks = []; syncUniforms(); shots = 0;
+  remnants.forEach(m => { scene.remove(m); m.geometry.dispose(); }); remnants = [];
+  vib.A = 0; deforms = []; burst = null;
+  flights.forEach(f => { scene.remove(f.bullet, f.trail); f.trail.geometry.dispose(); }); flights.length = 0;
+  rings.forEach(o => scene.remove(o.m)); rings.length = 0;
+  updateGeometry(null);
+  if (section.on) updateCap();
+  lastImpact = null;
+  $('r-hz').textContent = T/S > 0.1 ? '블록 (판 이론 범위 밖)' : Math.round(plateFreq()) + ' Hz';
+  $('result').hidden = true;
+  if (gelMode) enterGelScene();
+  buildWitness();
+  if (simMode) enterSimScene();
+}
+
+function syncUniforms(){
+  holes.forEach((h,i)=>{ U.uHoles.value[i].set(h.x,h.y,h.blind?-h.r:h.r,h.backBlind?-2:h.heat); U.uDepth.value[i] = h.blind ? h.depth : 1e3; }); U.uHoleCount.value = holes.length;
+  marks.forEach((m,i)=>U.uMarks.value[i].set(m.x,m.y,m.r,m.heat||0)); U.uMarkCount.value = marks.length;
+}
+
+/* ---------- section cap ---------- */
+function hatchTex(){
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0,0,32,32);
+  g.strokeStyle = 'rgba(0,0,0,0.32)'; g.lineWidth = 3; g.beginPath();
+  for (let k=-32;k<=64;k+=10){ g.moveTo(k,0); g.lineTo(k+32,32); } g.stroke();
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding; return t;
+}
+const capMat = new THREE.MeshBasicMaterial({map:hatchTex(), side:THREE.DoubleSide});
+const capPos = new Float32Array(SEG*18), capUv = new Float32Array(SEG*12);
+const capGeo = new THREE.BufferGeometry();
+capGeo.setAttribute('position', new THREE.BufferAttribute(capPos,3));
+capGeo.setAttribute('uv', new THREE.BufferAttribute(capUv,2));
+const cap = new THREE.Mesh(capGeo, capMat); cap.visible = false; cap.frustumCulled = false; scene.add(cap);
+function updateCap(){
+  const p = geo.attributes.position.array, q = geoB.attributes.position.array, step = S/SEG, tv = Math.max(T,0.0015), c = section.c;
+  const fx = (c+S/2)/step, ix = Math.min(SEG-1, Math.max(0, Math.floor(fx))), w = fx-ix;
+  const top = new Float32Array(SEG+1), bot = new Float32Array(SEG+1), ok = new Uint8Array(SEG+1), ys = new Float32Array(SEG+1);
+  for (let iy=0;iy<=SEG;iy++){
+    const y = S/2 - iy*step, i0 = (iy*(SEG+1)+ix)*3+2;
+    const z = p[i0]*(1-w) + p[i0+3]*w, zb = q[i0]*(1-w) + q[i0+3]*w;
+    let t = z, good = 1, lift = 0;
+    for (const h of holes){
+      if (Math.hypot(c-h.x, y-h.y) < h.r){ if (h.blind) t = Math.min(t, z - h.depth); else if (h.backBlind) lift = Math.max(lift, h.depth); else { good = 0; break; } }
+    }
+    ys[iy] = y; bot[iy] = zb - tv + Math.min(lift, tv*0.97); top[iy] = Math.max(t, bot[iy] + tv*0.02); ok[iy] = good;
+  }
+  const x = c - 1e-5, us = S*0.03;
+  for (let k=0;k<SEG;k++){
+    const a = k, b = k+1, o = k*18, u = k*12;
+    if (!ok[a] || !ok[b]){ capPos.fill(0, o, o+18); continue; }
+    const v = [[ys[a],top[a]],[ys[a],bot[a]],[ys[b],top[b]],[ys[b],top[b]],[ys[a],bot[a]],[ys[b],bot[b]]];
+    v.forEach(([yy,zz],j)=>{ capPos[o+j*3]=x; capPos[o+j*3+1]=yy; capPos[o+j*3+2]=zz; capUv[u+j*2]=yy/us; capUv[u+j*2+1]=zz/us; });
+  }
+  capGeo.attributes.position.needsUpdate = true; capGeo.attributes.uv.needsUpdate = true;
+}
+function setSection(on){
+  section.on = on;
+  $('sec').setAttribute('aria-pressed', on); $('sec').textContent = on ? '단면 끄기' : '단면 켜기';
+  cap.visible = on && !plateGone && !gelMode;
+  clipPlane.constant = on ? section.c : 1e3;
+  if (on){ updateCap(); camGoal.pos.set(S*1.55, S*0.28, S*0.55); camGoal.active = true; }
+}
+function setSectionPos(c){
+  section.c = c; $('o-sec').textContent = (c*100 >= 0 ? '+' : '') + (c*100).toFixed(1) + ' cm';
+  if (section.on){ clipPlane.constant = c; updateCap(); }
+}
+
+/* ---------- displacement ---------- */
+const vib = {A:0, t:0};
+let deforms = []; // [{field, t, dur, onDone}]
+function edgeF(x,y){
+  const m = S*0.12;
+  const fx = Math.min(1, Math.max(0,(S/2-Math.abs(x))/m)), fy = Math.min(1, Math.max(0,(S/2-Math.abs(y))/m));
+  const s = v => v*v*(3-2*v);
+  return s(fx)*s(fy);
+}
+function updateGeometry(list){
+  const p = geo.attributes.position.array, q = geoB.attributes.position.array, n = perm.length;
+  const vA = vib.A * Math.exp(-3.2*vib.t) * Math.sin(2*Math.PI*7*vib.t);
+  const lim = Math.max(T, 0.0015)*0.97;
+  for (let i=0;i<n;i++){
+    const v = vA*mode[i];
+    let zf = perm[i] + v, zb = permB[i] + v;
+    if (list) for (const L of list){ zf += L.field.f[i]*L.k; zb += L.field.b[i]*L.k; }
+    if (zf < zb - lim) zf = zb - lim;
+    p[i*3+2] = zf; q[i*3+2] = zb;
+  }
+  for (const g of [geo, geoB]){ g.attributes.position.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere(); }
+}
+
+function dentField(cx, cy, o){
+  const p = geo.attributes.position.array, n = perm.length, f = new Float32Array(n), b = new Float32Array(n);
+  const {dDepth, dR, hole} = o;
+  const bf = Math.exp(-T/(0.35*dR)), hf = o.holeFront ?? 1, hb = o.holeBack ?? 1;
+  for (let i=0;i<n;i++){
+    const x=p[i*3], y=p[i*3+1], dx=x-cx, dy=y-cy, r=Math.hypot(dx,dy);
+    let dish = 0, hz = 0;
+    if (r < dR) dish = -dDepth*0.5*(1+Math.cos(Math.PI*r/dR));
+    if (hole){
+      const {rh, L, depth, n:np, rot} = hole;
+      const a = Math.atan2(dy,dx), mod = 0.5 + 0.5*Math.pow(Math.abs(Math.cos(np*a/2 + rot)), 0.7);
+      if (r < rh) hz = -depth*mod;
+      else if (r < rh+L){ const q = 1-(r-rh)/L; hz = -depth*Math.pow(q,1.6)*mod; }
+    }
+    const e = edgeF(x,y);
+    f[i] = (dish + hz*hf)*e; b[i] = (dish*bf + hz*hb)*e;
+  }
+  return {f, b};
+}
+
+/* ---------- physics (simplified) ---------- */
+function dragK(m, d, core){
+  const Cd = core === 'plastic' ? 0.47 : (core === 'heat' || core === 'hesh') ? 0.35 : core === 'lead' || core === 'hp' ? 0.32 : 0.29;
+  return 1.2*Cd*Math.PI*d*d/4/(2*m);
+}
+function params(){
+  const m = massG()/1000, d = +$('dia').value/1000, core = $('core').value, v0 = +$('vel').value, x = +$('range').value;
+  const v = Math.max(5, v0*Math.exp(-dragK(m, d, core)*x));
+  const a = $('ammo'); const label = a.value === 'custom' ? '사용자 정의' : a.selectedOptions[0].text;
+  return {m, v, v0, range:x, d, core, ang:+$('ang').value, label};
+}
+function damageAt(x, y, d){
+  const M = MATS[matKey]; let k = 1, pre = 0;
+  for (const h of holes){
+    const dist = Math.hypot(x-h.x, y-h.y);
+    if ((h.blind || h.backBlind) && dist < h.r) pre = Math.max(pre, h.depth);
+    else if (!h.blind && !h.backBlind && dist < h.r*3) k = Math.min(k, 0.5 + 0.5*Math.max(0, dist-h.r)/(h.r*2));
+    if (M.brittle && dist < h.r*7) k = Math.min(k, 0.55 + 0.45*dist/(h.r*7));
+  }
+  const dz = Math.max(0, -sampleZ(x, y));
+  if (dz > 0) k = Math.min(k, Math.max(0.3, 1 - dz/(S*0.22)));
+  for (const m of marks){
+    const dist = Math.hypot(x-m.x, y-m.y), rr = m.r*(M.brittle ? 5 : 2.2);
+    if (dist < rr) k = Math.min(k, M.brittle ? 0.45 + 0.55*dist/rr : 0.8 + 0.2*dist/rr);
+  }
+  return {k, pre};
+}
+// Shaped-charge jet: hydrodynamic penetration P ~ L*sqrt(rho_jet/rho_target).
+// RHA-equivalent penetration is taken as ~5 charge diameters (public rule of thumb for this class),
+// scaled to the target by sqrt(rho_RHA/rho_target) with a weak strength correction.
+// HESH: the filler squashes against the face and detonates; the compressive pulse reflects at the
+// back face as tension and tears off a scab when it still exceeds the spall strength there.
+// Back-face pressure P = P0*exp(-t/(0.9d)); spall strength ~3x static tensile strength.
+function evaluateHESH(P, at){
+  const M = MATS[matKey];
+  const dmg = at ? damageAt(at.x, at.y, P.d) : {k:1, pre:0};
+  const T0 = thkM(), Tm = Math.max(T0*0.02, (T0 - dmg.pre)*dmg.k);
+  const sigma = 3*M.uts, P0 = 15e9, lam = 0.9*P.d;
+  const Tmax = P0 > sigma ? lam*Math.log(P0/sigma) : 0;
+  const Pback = P0*Math.exp(-Tm/lam);
+  const blast = Tm < 0.12*P.d, spall = !blast && Tm < Tmax;
+  const E = 0.5*P.m*P.v*P.v, Eeq = 5e6*Math.pow(P.d/0.105, 3);
+  const q = spall ? 1 - Tm/Tmax : 0;
+  const Ds = Math.min(S*0.6, P.d*(1.2 + 1.3*q));
+  const ts = spall ? Math.min(Tm*0.45, Tm*(0.12 + 0.4*q)) : 0;
+  return {hesh:true, E, Eeff:Eeq, Epen:Eeq, pen:blast, ric:false, vr:0, mode:'hesh', canCrater:true, gate:Pback, Rt:sigma,
+          ratio: Tmax/Tm, dk:dmg.k, pre:dmg.pre, Tmax, Pback, sigma, spall, blast, Ds, ts, Tm};
+}
+function evaluateHEAT(P, at){
+  const M = MATS[matKey], th = P.ang*Math.PI/180;
+  const dmg = at ? damageAt(at.x, at.y, P.d) : {k:1, pre:0};
+  const T0 = thkM(), Tm = Math.max(T0*0.02, (T0 - dmg.pre)*dmg.k), tEff = Tm/Math.cos(th);
+  const Prha = 5*P.d;
+  const Pt = Prha*Math.sqrt(7850/M.rho)*Math.pow(3.8e9/(4*M.ys), 0.08);
+  const E = 0.5*P.m*P.v*P.v, Eeq = 2e5*Math.pow(P.d/0.085, 3);
+  const pen = Pt > tEff;
+  return {heat:true, E, Eeff:Eeq, Epen:Eeq, pen, ric:false, vr:0, mode:'jet', canCrater:true, gate:1, Rt:1,
+          ratio:Pt/tEff, dk:dmg.k, pre:dmg.pre, Pt, Prha, tEff};
+}
+function evaluate(P, at){
+  if (P.core === 'heat') return evaluateHEAT(P, at);
+  if (P.core === 'hesh') return evaluateHESH(P, at);
+  const M = MATS[matKey], th = P.ang*Math.PI/180, C = CORE[P.core];
+  const E = 0.5*P.m*P.v*P.v;
+  // Tate criterion: the nose only digs in if its stagnation pressure plus its own strength beats target resistance R_t (~4 x yield)
+  const vn = P.v*Math.cos(th);
+  const Pimp = 0.5*C.rho*vn*vn, gate = Pimp + C.Y, Rt = 4*M.ys;
+  const sh = Math.min(1, gate/Rt);
+  const dmg = at ? damageAt(at.x, at.y, P.d) : {k:1, pre:0};
+  const T0 = thkM();
+  const Tm = Math.max(T0*0.02, (T0 - dmg.pre)*dmg.k);
+  const tEff = Tm/Math.cos(th), tau = 0.6*M.uts;
+  const Eplug = 0.5*Math.PI*P.d*tEff*tEff*tau*K;
+  const Ecrater = 6*M.uts*Math.PI*P.d*P.d*tEff;
+  const mode = Ecrater < Eplug ? 'crater' : 'plug';
+  const Epen = Math.min(Eplug, Ecrater);
+  const canCrater = gate > Rt;
+  // a projectile weaker than the target flattens or shatters and loses most of its punching ability
+  const f = C.k * (mode === 'plug' ? Math.pow(sh, 1.5) : 1);
+  const Eeff = E*f;
+  const pen = mode === 'crater' ? (canCrater && Eeff > Epen) : Eeff > Epen;
+  const ric = !pen && P.ang >= 50;
+  let vr = 0;
+  if (pen){
+    const vbl = Math.sqrt(2*Epen/(f*P.m));
+    const mPlug = M.rho*Math.PI*(P.d/2)**2*Tm;
+    vr = P.m/(P.m+mPlug) * Math.sqrt(Math.max(0, P.v*P.v - vbl*vbl));
+  }
+  return {E, Eeff, Epen, pen, ric, vr, mode, canCrater, gate, Rt, ratio:Eeff/Epen, dk:dmg.k, pre:dmg.pre};
+}
+function dishDepth(Eabs){
+  const M = MATS[matKey];
+  if (M.brittle) return 0;
+  return Math.min(S*0.18, Math.sqrt(Eabs/(M.ys*T*Math.PI*1.2)));
+}
+
+/* ---------- visuals: bullet, trail, plug, particles ---------- */
+const bulletMat = new THREE.MeshStandardMaterial({color:0xc78a3b, metalness:0.9, roughness:0.3});
+const bbMat = new THREE.MeshStandardMaterial({color:0xf2f0ea, metalness:0, roughness:0.35});
+const hpBody = new THREE.MeshStandardMaterial({color:0xb87333, metalness:0.85, roughness:0.35, clippingPlanes:[clipPlane]});
+const hpLead = new THREE.MeshStandardMaterial({color:0x7d8288, metalness:0.6, roughness:0.5, clippingPlanes:[clipPlane]});
+function makeHP(d){
+  const r = Math.max(d/2, 0.0025), len = d*1.6;
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len*0.6, 20), hpBody); body.position.y = -len*0.2; g.add(body);
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(r*0.55, r*0.8, len*0.22, 16), hpLead); core.position.y = len*0.15; g.add(core);
+  const petals = [];
+  for (let k=0;k<6;k++){
+    const a = k/6*Math.PI*2, pv = new THREE.Group();
+    pv.position.set(Math.cos(a)*r*0.82, len*0.1, Math.sin(a)*r*0.82); pv.rotation.y = -a;
+    const h = new THREE.Group(); pv.add(h);
+    const pm = new THREE.Mesh(new THREE.BoxGeometry(r*0.18, len*0.42, r*0.95), hpBody); pm.position.y = len*0.2; h.add(pm);
+    h.rotation.z = 0.35; g.add(pv); petals.push(h);
+  }
+  const wrap = new THREE.Group(); wrap.add(g); g.rotation.x = -Math.PI/2;
+  wrap.userData.petals = petals; return wrap;
+}
+const heatBodyMat = new THREE.MeshStandardMaterial({color:0x4d5a3c, metalness:0.4, roughness:0.55});
+const heatNoseMat = new THREE.MeshStandardMaterial({color:0x8d8f86, metalness:0.7, roughness:0.4});
+const heshBodyMat = new THREE.MeshStandardMaterial({color:0x5b5e3a, metalness:0.35, roughness:0.6});
+const heshBandMat = new THREE.MeshStandardMaterial({color:0xc9a227, metalness:0.3, roughness:0.5});
+function makeHESHRound(d){
+  const r = d/2, g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d*2.2, 28), heshBodyMat); body.position.y = -d*0.6; g.add(body);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 14, 0, Math.PI*2, 0, Math.PI/2), heshBodyMat); nose.scale.y = 0.55; nose.position.y = d*0.5; g.add(nose);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(r*1.01, r*1.01, d*0.18, 28), heshBandMat); band.position.y = d*0.15; g.add(band);
+  const wrap = new THREE.Group(); wrap.add(g); g.rotation.x = -Math.PI/2; return wrap;
+}
+function makeHEATRound(d){
+  const r = d/2, g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r*0.92, d*1.6, 24), heatBodyMat); body.position.y = -d*0.3; g.add(body);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(r, d*1.1, 24), heatNoseMat); nose.position.y = d*1.05; g.add(nose);
+  const probe = new THREE.Mesh(new THREE.CylinderGeometry(r*0.12, r*0.12, d*0.5, 10), heatNoseMat); probe.position.y = d*1.8; g.add(probe);
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(r*0.35, r*0.35, d*1.2, 12), heatBodyMat); boom.position.y = -d*1.7; g.add(boom);
+  for (let k=0;k<4;k++){ const fin = new THREE.Mesh(new THREE.BoxGeometry(d*0.9, d*0.6, d*0.04), heatBodyMat); fin.position.y = -d*2.1; fin.rotation.y = k*Math.PI/4*2 + Math.PI/4; g.add(fin); }
+  const wrap = new THREE.Group(); wrap.add(g); g.rotation.x = -Math.PI/2; return wrap;
+}
+function makeBullet(d, core){
+  if (core === 'hp') return makeHP(d);
+  if (core === 'heat') return makeHEATRound(d);
+  if (core === 'hesh') return makeHESHRound(d);
+  const r = Math.max(d/2, S*0.006), len = Math.max(d*3.5, S*0.035);
+  if (core === 'plastic'){ const w = new THREE.Group(); w.add(new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), bbMat)); return w; }
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len*0.65, 16), bulletMat);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(r, len*0.35, 16), bulletMat);
+  body.position.y = -len*0.175; tip.position.y = len*0.325; g.add(body, tip);
+  const wrap = new THREE.Group(); wrap.add(g); g.rotation.x = -Math.PI/2; // tip points -Z in wrap space
+  return wrap;
+}
+const trailMat = new THREE.LineBasicMaterial({color:0xf2a93b, transparent:true, opacity:0.7});
+const PN = 700, pPos = new Float32Array(PN*3), pCol = new Float32Array(PN*3), pVel = new Float32Array(PN*3), pLife = new Float32Array(PN);
+pPos.fill(-999);
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos,3));
+pGeo.setAttribute('color', new THREE.BufferAttribute(pCol,3));
+const pMat = new THREE.PointsMaterial({size:0.004, vertexColors:true, transparent:true, depthWrite:false, blending:THREE.NormalBlending});
+const points = new THREE.Points(pGeo, pMat); points.frustumCulled = false; scene.add(points);
+let pCursor = 0;
+function spawn(n, o, dir, spread, speed, col, life){
+  for (let k=0;k<n;k++){
+    const i = pCursor; pCursor = (pCursor+1)%PN;
+    const v = new THREE.Vector3(dir.x+(Math.random()-0.5)*spread, dir.y+(Math.random()-0.5)*spread, dir.z+(Math.random()-0.5)*spread).normalize().multiplyScalar(speed*(0.3+Math.random()*0.9));
+    pPos.set([o.x,o.y,o.z], i*3); pVel.set([v.x,v.y,v.z], i*3);
+    const j = 0.75+Math.random()*0.35; pCol.set([col.r*j, col.g*j, col.b*j], i*3);
+    pLife[i] = life*(0.5+Math.random()*0.8);
+  }
+}
+/* ---------- witness plate: thin aluminium sheet behind the target that records what came through ---------- */
+const wit = {on:false, mesh:null, ctx:null, tex:null, z:0, hits:0, dirty:false};
+function witnessZ(){ return -(Math.max(T, 0.0015) + Math.max(0.12, S*0.45)); }
+function buildWitness(){
+  if (wit.mesh){ scene.remove(wit.mesh); wit.mesh.geometry.dispose(); wit.mesh.material.dispose(); wit.tex.dispose(); wit.mesh = null; }
+  wit.hits = 0;
+  if (!wit.on || gelMode) return;
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d'); g.fillStyle = '#d9dde2'; g.fillRect(0, 0, 512, 512);
+  g.strokeStyle = 'rgba(60,70,80,0.25)'; g.lineWidth = 1;
+  for (let k=1;k<10;k++){ g.beginPath(); g.moveTo(k*51.2, 0); g.lineTo(k*51.2, 512); g.moveTo(0, k*51.2); g.lineTo(512, k*51.2); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(S, S), new THREE.MeshStandardMaterial({map:tex, metalness:0.3, roughness:0.6, side:THREE.DoubleSide, clippingPlanes:[clipPlane]}));
+  wit.z = witnessZ(); m.position.z = wit.z; scene.add(m);
+  Object.assign(wit, {mesh:m, ctx:g, tex});
+}
+function witnessMark(x, y, r, hot){
+  if (!wit.mesh || Math.abs(x) > S/2 || Math.abs(y) > S/2) return;
+  const g = wit.ctx, px = (x + S/2)/S*512, py = (S/2 - y)/S*512, pr = Math.max(1.2, r/S*512);
+  if (hot){ g.fillStyle = 'rgba(120,70,30,0.35)'; g.beginPath(); g.arc(px, py, pr*2.2, 0, Math.PI*2); g.fill(); }
+  g.fillStyle = '#16191d'; g.beginPath(); g.arc(px, py, pr, 0, Math.PI*2); g.fill();
+  wit.hits++; wit.dirty = true;
+}
+function stepParticles(dt){
+  const g = 1.6*S;
+  for (let i=0;i<PN;i++){
+    if (pLife[i] <= 0) continue;
+    pLife[i] -= dt;
+    if (pLife[i] <= 0){ pPos[i*3+1] = -999; continue; }
+    pVel[i*3+1] -= g*dt;
+    const zPrev = pPos[i*3+2];
+    pPos[i*3] += pVel[i*3]*dt; pPos[i*3+1] += pVel[i*3+1]*dt; pPos[i*3+2] += pVel[i*3+2]*dt;
+    if (wit.mesh && zPrev > wit.z && pPos[i*3+2] <= wit.z){
+      const sp = Math.hypot(pVel[i*3], pVel[i*3+1], pVel[i*3+2]);
+      if (sp > S*0.8){ witnessMark(pPos[i*3], pPos[i*3+1], S*0.0025, pCol[i*3] > 0.8 && pCol[i*3+2] < 0.5); pLife[i] = 0; pPos[i*3+1] = -999; }
+      else { pVel[i*3+2] *= -0.2; pPos[i*3+2] = wit.z + 0.001; }
+    }
+    const fade = Math.min(1, pLife[i]*2.5);
+    pCol[i*3]*=0.985+0.015*fade; pCol[i*3+1]*=0.97+0.03*fade; pCol[i*3+2]*=0.96+0.04*fade;
+  }
+  pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+}
+const flyers = []; // bullets after impact, plugs
+
+/* ---------- firing ---------- */
+const flights = [];
+let burst = null;
+function fireAt(lx, ly){
+  if (Math.abs(lx) > S/2*0.94 || Math.abs(ly) > S/2*0.94) return;
+  const P = params(), th = P.ang*Math.PI/180;
+  const fly = Math.min(1.2, Math.max(0.25, 0.42*Math.sqrt(900/P.v)));
+  const dir = new THREE.Vector3(-Math.sin(th), 0, -Math.cos(th));
+  const impact = new THREE.Vector3(lx, ly, sampleZ(lx, ly));
+  const L = S*2.4;
+  const start = impact.clone().addScaledVector(dir, -L);
+  const bullet = makeBullet(P.d, P.core);
+  bullet.position.copy(start);
+  bullet.lookAt(start.clone().add(dir)); bullet.rotateY(Math.PI);
+  scene.add(bullet);
+  const tg = new THREE.BufferGeometry().setFromPoints([start.clone(), start.clone()]);
+  const trail = new THREE.Line(tg, trailMat.clone()); scene.add(trail);
+  flights.push({P, dir, impact, start, L, bullet, trail, fly, t:0, hit:false});
+}
+function gauss(){ const u = 1 - Math.random(), v = Math.random(), m = Math.sqrt(-2*Math.log(u)); return [m*Math.cos(2*Math.PI*v), m*Math.sin(2*Math.PI*v)]; }
+function trigger(x, y){
+  audio();
+  if (simMode){ runSim(); return; }
+  if (gelMode){ gelFire(x, y); return; }
+  burst = {x, y, left:+$('mode').value, timer:0};
+}
+function sampleZ(x,y){
+  const step = S/SEG, ix = Math.round((x+S/2)/step), iy = Math.round((S/2-y)/step);
+  const i = Math.min(SEG,Math.max(0,iy))*(SEG+1) + Math.min(SEG,Math.max(0,ix));
+  return perm[i] || 0;
+}
+function sampleZB(x,y){
+  const step = S/SEG, ix = Math.round((x+S/2)/step), iy = Math.round((S/2-y)/step);
+  const i = Math.min(SEG,Math.max(0,iy))*(SEG+1) + Math.min(SEG,Math.max(0,ix));
+  return permB[i] || 0;
+}
+
+function onImpact(s){
+  const {P, impact, dir} = s;
+  const M = MATS[matKey];
+  const inHole = plateGone || holes.some(h => !h.blind && !h.backBlind && Math.hypot(h.x-impact.x, h.y-impact.y) < h.r*0.9 - P.d*0.3);
+  let R = evaluate(P, impact), verdict, deform = null;
+  const sparkCol = {r:1, g:0.55, b:0.18}, debrisCol = new THREE.Color(M.color);
+  const speedVis = s.L/s.fly;
+  if (inHole && !R.heat && !R.hesh){
+    verdict = 'pass';
+    launch(s.bullet, dir.clone(), speedVis, 1.4);
+  } else if (R.hesh){
+    verdict = heshImpact(s, R, P, M, dir, impact);
+  } else if (R.heat){
+    const out = heatImpact(s, R, P, M, dir, impact);
+    verdict = out.verdict; deform = out.deform;
+  } else if (R.pen){
+    verdict = 'pen';
+    const overkill = R.ratio;
+    const crater = R.mode === 'crater';
+    const rh = crater ? P.d/2*Math.max(1.8, M.holeK) : P.d/2*M.holeK*(1+0.12*Math.min(1, overkill-1));
+    const L = crater ? rh*0.6 : Math.min(rh*M.petalK + T*0.8, rh*3 + P.d*1.5);
+    const depth = (crater ? rh*0.3 : L*0.75)*Math.min(1, Math.max(0.3, 2.2/overkill));
+    const dD = crater ? 0 : dishDepth(R.Epen*0.5);
+    const dR = Math.min(S*0.42, 1.5*P.d + 4*T + 2.5*dD);
+    deform = {field: dentField(impact.x, impact.y, {dDepth:dD, dR, hole:{rh, L, depth, n:M.petals, rot:Math.random()*6}}), t:0, dur:0.2};
+    const hh = mergeHole(impact.x, impact.y, rh, false, 0, M.spark ? 1 : 0.15);
+    removeRemnantsNear(hh.x, hh.y, hh.r*1.1);
+    tubeFor(hh);
+    syncUniforms();
+    launch(s.bullet, dir.clone(), speedVis*Math.max(0.15, R.vr/P.v), 1.6);
+    if (!crater){
+    const plug = new THREE.Mesh(new THREE.CylinderGeometry(rh*0.95, rh*0.95, Math.max(T,0.0015), 14), makePlainMat(M));
+    plug.position.set(impact.x, impact.y, impact.z - T/2); plug.rotation.x = Math.PI/2;
+    scene.add(plug);
+    flyers.push({obj:plug, vel:dir.clone().multiplyScalar(speedVis*Math.max(0.12, R.vr/P.v)*0.8).add(new THREE.Vector3((Math.random()-0.5)*0.3,0.15,0).multiplyScalar(S)), spin:new THREE.Vector3(Math.random()*8, Math.random()*8, 0), life:1.8, grav:true});
+    }
+    const backPt = impact.clone(); backPt.z -= T;
+    spawn(70, backPt, dir, 1.3, S*1.6, debrisCol.clone().multiplyScalar(0.55), 1.2);
+    if (M.spark){ spawn(60, impact, new THREE.Vector3(0,0,1), 1.6, S*1.4, sparkCol, 0.6); spawn(60, backPt, dir, 1.0, S*2, sparkCol, 0.7); }
+    else spawn(M.brittle ? 160 : 50, impact, new THREE.Vector3(0,0,1), 1.6, S*1.1, debrisCol.clone().multiplyScalar(M.brittle ? 0.8 : 0.5), 0.9);
+  } else if (!R.ric && R.mode === 'crater' && R.canCrater){
+    verdict = 'blind';
+    const pd = Math.min(T*0.97, R.pre + (T - R.pre)*R.ratio);
+    const rh = P.d/2*Math.max(1.8, M.holeK);
+    const hh = mergeHole(impact.x, impact.y, rh, true, pd, M.spark ? 1 : 0.15);
+    if (R.pre === 0) deform = {field: dentField(impact.x, impact.y, {dDepth:0, dR:rh*3, holeBack:0, hole:{rh, L:rh*0.6, depth:rh*0.08, n:M.petals, rot:Math.random()*6}}), t:0, dur:0.2};
+    if (hh.blind){
+      const h = Math.min(P.d*2.5, hh.depth*0.5);
+      if (hh.rem){ scene.remove(hh.rem); hh.rem.geometry.dispose(); }
+      hh.rem = new THREE.Mesh(new THREE.CylinderGeometry(P.d/2*1.1, P.d/2*0.9, h, 18), remMat);
+      hh.rem.rotation.x = Math.PI/2; hh.rem.userData = {h}; scene.add(hh.rem);
+    }
+    tubeFor(hh);
+    syncUniforms();
+    scene.remove(s.bullet);
+    R.depth = hh.blind ? hh.depth : T;
+    if (M.spark) spawn(110, impact, new THREE.Vector3(0,0,1), 1.6, S*1.5, sparkCol, 0.7);
+    spawn(M.brittle ? 160 : 60, impact, new THREE.Vector3(0,0,1), 1.6, S*1.1, debrisCol.clone().multiplyScalar(0.6), 0.9);
+  } else {
+    verdict = R.ric ? 'ric' : 'dent';
+    if (!R.ric && R.gate < R.Rt) R.flat = true;
+    const Eabs = R.ric ? R.Eeff*0.3 : R.Eeff;
+    const dD = dishDepth(Eabs);
+    const dR = Math.min(S*0.42, 1.5*P.d + 4*T + 2.5*dD);
+    deform = {field: dentField(impact.x, impact.y, {dDepth:dD, dR}), t:0, dur:0.2};
+    marks.push({x:impact.x, y:impact.y, r:Math.max(P.d*0.9, S*0.008), heat: M.spark ? Math.min(0.9, Math.max(0, Math.log10(R.Eeff+1)/5 - 0.35)) : 0}); if (marks.length > MAXM) marks.shift();
+    syncUniforms();
+    if (R.ric){
+      const out = dir.clone(); out.z = -out.z; out.y += 0.12;
+      launch(s.bullet, out.normalize(), speedVis*0.5, 1.4);
+    } else if (P.core === 'plastic'){
+      const out = dir.clone(); out.z = -out.z; out.x += (Math.random()-0.5)*0.6; out.y += 0.3 + Math.random()*0.3;
+      flyers.push({obj:s.bullet, vel:out.normalize().multiplyScalar(speedVis*0.25), life:1.4, grav:true, align:false, spin:new THREE.Vector3(6,4,0)});
+    } else {
+      scene.remove(s.bullet);
+      if (P.core !== 'plastic') deform.onDone = () => {
+        const soft = P.core === 'lead';
+        const r1 = soft ? P.d*0.95 : P.d*0.55, h = soft ? P.d*0.35 : P.d*1.1;
+        addRemnant(impact.x, impact.y, h*(soft ? 0.35 : 0.3), soft ? r1*0.7 : r1*0.8, r1, h);
+      };
+    }
+    if (M.spark && R.Eeff > 50) spawn(R.ric?90:60, impact, R.ric ? new THREE.Vector3(-dir.x, 0.2, 0.4) : new THREE.Vector3(0,0,1), 1.5, S*1.3, sparkCol, 0.55);
+    else spawn(25, impact, new THREE.Vector3(0,0,1), 1.6, S*0.7, debrisCol.clone().multiplyScalar(0.5), 0.6);
+  }
+  if (M.brittle && verdict !== 'pass' && !plateGone){
+    const tv = Math.max(T, 0.0015);
+    const Rs = (R.Eeff*0.012 + crackAcc) / (40*M.Gc*tv);
+    const need = M.tempered ? 0.01 : Math.max(P.d*1.5, S*0.06);
+    if (Rs > need){
+      R.shatterR = shatterAt(impact.x, impact.y, Rs, R, dir, M);
+      crackAcc = 0;
+      if (verdict !== 'pen' && verdict !== 'ric' && s.bullet.parent){ launch(s.bullet, dir.clone(), speedVis*0.3, 1.2); }
+      verdict = 'shatter';
+      if (section.on) updateCap();
+    } else crackAcc += R.Eeff*0.012*0.6;
+  }
+  if (deform) deforms.push(deform);
+  const impulse = P.m*P.v;
+  const vNow = vib.A*Math.exp(-3.2*vib.t);
+  vib.A = Math.min(S*0.02, vNow + impulse/(MATS[matKey].rho*T*S*S) * S * (verdict==='pen' ? 0.03 : 0.05));
+  vib.t = 0;
+  if (verdict !== 'pass' && !R.hesh){
+    addRing(impact.x, impact.y, impact.z + 0.0006, R.Eeff);
+    if (T > 0.003) addRing(impact.x, impact.y, sampleZB(impact.x, impact.y) - Math.max(T,0.0015) - 0.0006, R.Eeff*0.5);
+    // jacket splash: bullet material sprays along the face on hard targets
+    if (verdict !== 'pen' && !R.heat && P.core !== 'plastic' && (M.ys > 800e6 || M.brittle)) spawn(Math.min(80, 20 + R.Eeff/40), impact, new THREE.Vector3(0,0,0.25), 2.4, S*1.6, {r:0.85, g:0.6, b:0.3}, 0.5);
+    shake = Math.max(shake, Math.min(1, (Math.log10(R.Eeff+1) - 2)/4.5));
+    playImpact(R.Eeff, verdict);
+  }
+  shots++;
+  lastImpact = {x:impact.x, y:impact.y};
+  s.result = {verdict, R, P};
+}
+function makePlainMat(M){ return new THREE.MeshStandardMaterial({color:M.color, metalness:M.metal, roughness:M.rough+0.1}); }
+function launch(obj, dir, speed, life){
+  flyers.push({obj, vel:dir.multiplyScalar(speed), life, grav:false, align:true, size:Math.max(+$('dia').value/2000, S*0.004)});
+}
+
+const logRows = [];
+let logN = 0;
+function addLog(P, text, verdict, extra){
+  if (!P) return;
+  logN++;
+  const mat = MATS[matKey].name.replace(/\s*\(.*\)/, '');
+  const tmm = MATS[matKey].gel ? '' : ' ' + (T*1000 < 10 ? (T*1000).toFixed(1) : Math.round(T*1000)) + 'mm' + (+$('temp').value !== 20 ? ' ' + $('temp').value + '°C' : '');
+  logRows.unshift({n:logN, a:(P.label || '').replace(/\s*\(.*\)/, '') + (P.range ? ' @' + P.range + 'm' : '') + ' → ' + mat + tmm, v:text + (extra ? ' · ' + extra : ''), c:verdict});
+  if (logRows.length > 8) logRows.pop();
+  const col = {pen:'var(--pen)', blast:'var(--pen)', shatter:'var(--pen)', blind:'var(--accent)', spall:'var(--accent)', ric:'var(--ric)'};
+  $('log').innerHTML = logRows.map(o => `<li><span class="n">#${o.n}</span><span class="a" title="${o.a}">${o.a}</span><span class="v" style="color:${col[o.c] || 'var(--dent)'}">${o.v}</span></li>`).join('');
+  $('logbox').hidden = false;
+}
+function showResult(res){
+  $('r-kv').hidden = false; $('g-kv').hidden = true; $('s-kv').hidden = true; $('g-prof').toggleAttribute('hidden', true);
+  const {verdict, R} = res;
+  const labels = {spall:'후면 박리 (스폴링)', nospall:'후면 박리 없음 · 표면 그을림', blast:'폭발 관통', shatter: R.shatterR === 'full' ? '판 전체 파쇄' : '국부 파쇄', pen:'관통', blind:'부분 관입 · 정지', dent: R.flat ? '탄 변형 · 표적 경미 손상' : '정지 · 소성 변형', ric:'도탄 (튕겨 나감)', pass:'기존 관통구 통과'};
+  $('r-pr').textContent = (R.gate/1e9).toFixed(2) + ' / ' + (R.Rt/1e9).toFixed(2) + ' GPa';
+  $('r-mode').textContent = R.hesh ? '점착유탄 · 후면 박리' : R.heat ? '성형작약 제트' : R.mode === 'crater' ? '침식 관입' : '전단 플러깅';
+  $('r-depth').textContent = R.hesh ? (R.blast ? '판 전체' : R.spall ? '후면 ' + fmtMM(R.ts) + ' 박리' : '—') : verdict==='shatter' ? (R.shatterR === 'full' ? '판 전체' : '파쇄 반경 ' + fmtMM(R.shatterR)) : verdict==='pen'||verdict==='pass' ? '판 전체' : verdict==='blind' ? fmtMM(R.depth) : '—';
+  const el = $('r-verdict'); el.textContent = labels[verdict]; el.className = 'verdict v-' + verdict;
+  $('r-e').textContent = fmtJ(R.E);
+  const lab = (id, a, c, b) => { $(id).previousElementSibling.textContent = R.heat ? a : R.hesh ? c : b; };
+  lab('r-epen', '제트 관통력', '박리 한계 두께', '관통 필요 에너지'); lab('r-pr', 'RHA 환산 관통력', '후면 충격압 / 박리강도', '충격압 / 표적 저항'); lab('r-vr', '잔여 관통력', '박리편 지름', '잔류 속도');
+  $('r-epen').textContent = R.heat ? fmtMM(R.Pt) : R.hesh ? fmtMM(R.Tmax) : fmtJ(R.Epen);
+  if (R.hesh) $('r-vr').textContent = R.spall ? fmtMM(R.Ds) : '—';
+  if (R.heat) $('r-pr').textContent = fmtMM(R.Prha);
+  if (R.heat) $('r-vr').textContent = fmtMM(Math.max(0, R.Pt - R.tEff));
+  else if (!R.hesh) $('r-vr').textContent = (verdict==='pen' || (verdict==='shatter' && R.pen)) ? Math.round(R.vr)+' m/s' : verdict==='pass' ? $('vel').value+' m/s' : '0 m/s';
+  let mx = 0; for (let i=0;i<perm.length;i++) mx = Math.max(mx, -perm[i]);
+  $('r-def').textContent = (mx*1000).toFixed(mx*1000<10?2:1) + ' mm';
+  $('r-n').textContent = shots + '발';
+  $('r-wit').textContent = wit.mesh ? wit.hits + '곳' : '증거판 없음';
+  addLog(res.P, labels[verdict], verdict, R.heat ? (R.pen ? '관통' : fmtMM(R.depth || 0)) : R.hesh ? (R.spall ? '박리 ' + fmtMM(R.ts) : R.blast ? '판 전체' : '—') : verdict === 'blind' ? fmtMM(R.depth) : verdict === 'pen' || verdict === 'pass' ? '판 전체' : '');
+  $('r-dmg').textContent = (R.dk < 0.999 || R.pre > 0) ? ('두께 ×' + R.dk.toFixed(2) + (R.pre > 0 ? ' · 기존 관입 ' + fmtMM(R.pre) : '')) : '없음';
+  $('result').hidden = false;
+}
+const fmtMM = m => { const mm = m*1000; return (mm < 10 ? mm.toFixed(1) : Math.round(mm)) + ' mm'; };
+const fmtJ = j => j < 0.01 ? '0.01 J 미만' : j >= 1e6 ? (j/1e6).toFixed(2)+' MJ' : j >= 1000 ? (j/1000).toFixed(2)+' kJ' : j >= 10 ? Math.round(j)+' J' : j.toFixed(2)+' J';
+
+/* ---------- stress wave rings, shake, sound ---------- */
+const fx = [];
+const flashLight = new THREE.PointLight(0xffa040, 0, 3); scene.add(flashLight);
+function heatImpact(s, R, P, M, dir, impact){
+  scene.remove(s.bullet);
+  const pen = R.pen, rh = Math.max(P.d*0.13, 0.002);
+  const depthN = pen ? T : Math.min(T*0.97, R.pre + R.Pt*Math.cos(P.ang*Math.PI/180));
+  const hh = mergeHole(impact.x, impact.y, rh, !pen, depthN, 1);
+  if (pen) removeRemnantsNear(hh.x, hh.y, hh.r*1.1);
+  tubeFor(hh);
+  marks.push({x:impact.x, y:impact.y, r:Math.min(S*0.2, P.d*1.1), heat:1}); if (marks.length > MAXM) marks.shift();
+  syncUniforms();
+  const dD = dishDepth(R.Eeff*0.02), dR = Math.min(S*0.42, P.d*2 + 4*T + 2.5*dD);
+  const deform = {field: dentField(impact.x, impact.y, {dDepth:dD, dR, holeBack: pen ? 1 : 0, hole:{rh, L:rh*1.5, depth:rh*0.6, n:M.petals, rot:Math.random()*6}}), t:0, dur:0.15};
+  heatFX(impact, dir, R, P, pen, M);
+  R.depth = pen ? T : depthN;
+  return {verdict: pen ? 'pen' : 'blind', deform};
+}
+function heatFX(impact, dir, R, P, pen, M){
+  // detonation fireball on the face
+  const fb = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({color:0xffb347, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false}));
+  fb.position.copy(impact).addScaledVector(dir, -P.d*0.5); scene.add(fb);
+  const maxR = Math.min(S*0.35, P.d*2.2);
+  fx.push({obj:fb, life:0.6, t:0, step(o, q){ o.obj.scale.setScalar(Math.max(1e-4, maxR*Math.pow(q, 0.4))); o.obj.material.opacity = 0.9*(1-q); o.obj.material.color.setHSL(0.09 - 0.06*q, 1, 0.62 - 0.35*q); }});
+  flashLight.position.copy(fb.position); flashLight.distance = S*4;
+  fx.push({life:0.5, t:0, step(o, q){ flashLight.intensity = 8*(1-q)*(1-q); }});
+  // jet: thin, very bright, grows along the shot line in a few frames
+  const jl = pen ? R.tEff + S*0.8 : R.Pt, jr = Math.max(P.d*0.012, S*0.0016);
+  const jet = new THREE.Mesh(new THREE.CylinderGeometry(jr, jr*0.4, 1, 10, 1, true), new THREE.MeshBasicMaterial({color:0xdaf3ff, transparent:true, opacity:1, blending:THREE.AdditiveBlending, depthWrite:false}));
+  jet.renderOrder = 5; jet.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir); scene.add(jet);
+  fx.push({obj:jet, life:0.8, t:0, step(o, q){ const g = Math.min(1, q/0.2), L = Math.max(1e-4, jl*g); o.obj.scale.set(1, L, 1); o.obj.position.copy(impact).addScaledVector(dir, L/2); o.obj.material.opacity = q < 0.35 ? 1 : Math.max(0, (1-q)/0.65); }});
+  spawn(170, impact, new THREE.Vector3(0,0,1), 2.2, S*1.7, {r:1, g:0.62, b:0.22}, 0.7);
+  spawn(90, impact, new THREE.Vector3(0,0.3,1), 2.4, S*0.55, {r:0.32, g:0.3, b:0.28}, 1.5);
+  if (pen){
+    const bp = impact.clone().addScaledVector(dir, R.tEff);
+    fx.push({life:0.06, t:0, step(o, q){ if (q >= 1 && !o.done){ o.done = true;
+      spawn(230, bp, dir, 0.85, S*2.4, {r:1, g:0.78, b:0.4}, 0.9);
+      spawn(90, bp, dir, 1.2, S*1.3, new THREE.Color(M.color).multiplyScalar(0.6), 1.3); } }});
+  }
+  shake = Math.max(shake, 1);
+  playBoom(P.d);
+}
+function stepFX(dt){
+  for (let i=fx.length-1;i>=0;i--){
+    const o = fx[i]; o.t += dt; const q = Math.min(1, o.t/o.life);
+    o.step(o, q);
+    if (q >= 1){ if (o.obj){ scene.remove(o.obj); if (o.obj.geometry) o.obj.geometry.dispose(); if (o.obj.material) o.obj.material.dispose(); } fx.splice(i, 1); }
+  }
+}
+function playBoom(d){
+  const a = audio(); if (!a) return;
+  const now = a.currentTime, out = a.createGain(); out.gain.value = Math.min(1, 0.5 + d*3); out.connect(a.destination);
+  const n = Math.floor(a.sampleRate*1.8), buf = a.createBuffer(1, n, a.sampleRate), ch = buf.getChannelData(0);
+  for (let i=0;i<n;i++){ const q = i/n; ch[i] = (Math.random()*2-1)*Math.pow(1-q, 3)*(q < 0.004 ? q/0.004 : 1); }
+  const src = a.createBufferSource(); src.buffer = buf;
+  const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(2400, now); lp.frequency.exponentialRampToValueAtTime(180, now + 1.2);
+  src.connect(lp).connect(out); src.start(now);
+  const o = a.createOscillator(), g = a.createGain();
+  o.frequency.setValueAtTime(70, now); o.frequency.exponentialRampToValueAtTime(28, now + 0.8);
+  g.gain.setValueAtTime(0.9, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
+  o.connect(g).connect(out); o.start(now); o.stop(now + 1);
+}
+function fireball(pos, maxR, life){
+  const fb = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({color:0xffb347, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false}));
+  fb.position.copy(pos); scene.add(fb);
+  fx.push({obj:fb, life, t:0, step(o, q){ o.obj.scale.setScalar(Math.max(1e-4, maxR*Math.pow(q, 0.4))); o.obj.material.opacity = 0.9*(1-q); o.obj.material.color.setHSL(0.09 - 0.06*q, 1, 0.62 - 0.35*q); }});
+  flashLight.position.copy(pos); flashLight.distance = S*4;
+  fx.push({life:life*0.8, t:0, step(o, q){ flashLight.intensity = 9*(1-q)*(1-q); }});
+}
+function heshImpact(s, R, P, M, dir, impact){
+  scene.remove(s.bullet);
+  // the soft nose squashes into a pancake on the face before the base fuze fires
+  const pc = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 28), new THREE.MeshStandardMaterial({color:0xd8cfa6, roughness:0.85}));
+  pc.rotation.x = Math.PI/2; pc.position.set(impact.x, impact.y, impact.z + P.d*0.05); scene.add(pc);
+  fx.push({obj:pc, life:0.24, t:0, step(o, q){ const rr = P.d*(0.4 + 0.55*q); o.obj.scale.set(rr, P.d*(0.5 - 0.42*q), rr); o.obj.position.z = impact.z + P.d*(0.25 - 0.21*q); }});
+  fx.push({life:0.24, t:0, step(o, q){ if (q >= 1 && !o.done){ o.done = true; heshDetonate(R, P, M, dir, impact); } }});
+  R.depth = R.blast ? T : R.spall ? R.ts : 0;
+  return R.blast ? 'blast' : R.spall ? 'spall' : 'nospall';
+}
+function heshDetonate(R, P, M, dir, impact){
+  const tv = Math.max(T, 0.0015);
+  fireball(impact.clone().add(new THREE.Vector3(0, 0, P.d*0.3)), Math.min(S*0.45, P.d*3), 0.7);
+  playBoom(P.d);
+  spawn(180, impact, new THREE.Vector3(0, 0, 1), 2.4, S*1.8, {r:1, g:0.6, b:0.22}, 0.7);
+  spawn(110, impact, new THREE.Vector3(0, 0.35, 1), 2.6, S*0.5, {r:0.3, g:0.29, b:0.27}, 1.8);
+  marks.push({x:impact.x, y:impact.y, r:Math.min(S*0.25, P.d*1.4), heat:1}); if (marks.length > MAXM) marks.shift();
+  addRing(impact.x, impact.y, impact.z + 0.0006, R.Eeff);
+  const dD = dishDepth(R.Eeff*0.002), dR = Math.min(S*0.42, P.d*2.5 + 4*T + 2.5*dD);
+  let hole = null;
+  if (R.blast){
+    const rh = P.d*0.55;
+    hole = {rh, L:rh*1.4, depth:rh*0.9, n:M.petals + 2, rot:Math.random()*6};
+    const hh = mergeHole(impact.x, impact.y, rh, false, 0, 0.6); removeRemnantsNear(hh.x, hh.y, hh.r*1.1); tubeFor(hh);
+    const bp = impact.clone(); bp.z -= tv;
+    spawn(160, bp, dir, 1.4, S*1.8, new THREE.Color(M.color).multiplyScalar(0.6), 1.3);
+  }
+  deforms.push({field: dentField(impact.x, impact.y, {dDepth:dD, dR, hole}), t:0, dur:0.12});
+  syncUniforms();
+  shake = 1;
+  vib.A = Math.min(S*0.02, vib.A + S*0.012); vib.t = 0;
+  if (R.spall){
+    fx.push({life:0.07, t:0, step(o, q){ if (q >= 1 && !o.done){ o.done = true; heshSpall(R, P, M, dir, impact); } }});
+  }
+}
+function heshSpall(R, P, M, dir, impact){
+  const tv = Math.max(T, 0.0015), zb = sampleZB(impact.x, impact.y) - tv;
+  const rs = R.Ds/2;
+  let h = holes.find(o => o.backBlind && Math.hypot(o.x-impact.x, o.y-impact.y) < o.r);
+  if (h){
+    h.depth += R.ts; h.r = Math.min(S*0.3, Math.max(h.r, rs*0.92));
+    if (h.depth >= tv*0.95){ h.backBlind = false; h.heat = 0.4; }
+  } else {
+    h = {x:impact.x, y:impact.y, r:rs*0.92, backBlind:true, depth:R.ts, heat:-2};
+    holes.push(h); if (holes.length > MAXH) dropHole(holes.shift());
+  }
+  syncUniforms(); tubeFor(h);
+  // the scab: an irregular disc torn off the back face
+  if (!shardMat) shardMat = new THREE.MeshStandardMaterial({color:M.color, metalness:M.metal, roughness:M.rough+0.05, transparent:!!M.opacity, opacity:M.opacity ? Math.min(1, M.opacity+0.15) : 1, depthWrite:!M.opacity, side:THREE.DoubleSide, clippingPlanes:[clipPlane]});
+  const pts = [];
+  for (let k=0;k<16;k++){ const a = k/16*Math.PI*2, rr = rs*(0.82 + Math.random()*0.22); pts.push(new THREE.Vector2(Math.cos(a)*rr, Math.sin(a)*rr)); }
+  const g = new THREE.ExtrudeGeometry(new THREE.Shape(pts), {depth:Math.max(R.ts, 0.001), bevelEnabled:false}); g.translate(0, 0, -Math.max(R.ts, 0.001));
+  const m = new THREE.Mesh(g, shardMat); m.position.set(impact.x, impact.y, zb + R.ts); scene.add(m);
+  const q = 1 - R.Tm/R.Tmax;
+  shards.push({m, v:dir.clone().multiplyScalar(S*(0.5 + 1.6*q)).add(new THREE.Vector3((Math.random()-0.5)*0.2, 0.15, 0).multiplyScalar(S)), w:new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, 0).multiplyScalar(3 + 5*q), tv:Math.max(R.ts, 0.001), delay:0});
+  const bp = new THREE.Vector3(impact.x, impact.y, zb);
+  spawn(Math.round(80 + 140*q), bp, dir, 1.3, S*(1.2 + 1.4*q), new THREE.Color(M.color).multiplyScalar(0.7), 1.3);
+  if (M.spark) spawn(Math.round(60 + 100*q), bp, dir, 1.1, S*(1.6 + 1.2*q), {r:1, g:0.75, b:0.35}, 0.7);
+  addRing(impact.x, impact.y, zb - 0.0006, R.Eeff*0.5);
+  if (section.on) updateCap();
+}
+const rings = [];
+let shake = 0, timeScale = 1;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ringGeo = new THREE.RingGeometry(0.88, 1, 64);
+function addRing(x, y, z, E){
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({color:0xa8d4ff, transparent:true, opacity:0.75, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending}));
+  m.position.set(x, y, z); scene.add(m);
+  rings.push({m, t:0, r0:S*0.01, grow:S*Math.min(0.75, 0.15 + Math.log10(E+1)*0.08)});
+}
+let actx = null, soundOn = true;
+function audio(){
+  if (!soundOn) return null;
+  if (!actx){ try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; } }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function plateFreq(){
+  const M = MATS[matKey];
+  return 1.654*Math.max(T, 0.0005)/(S*S)*Math.sqrt(M.E/(M.rho*0.91));
+}
+let lastSnd = 0;
+function playImpact(Eeff, verdict){
+  const a = audio(); if (!a) return;
+  const now = a.currentTime; if (now - lastSnd < 0.03) return; lastSnd = now;
+  const M = MATS[matKey];
+  const loud = Math.min(1, 0.12 + Math.log10(1+Eeff)/7);
+  const out = a.createGain(); out.gain.value = 0.5*loud; out.connect(a.destination);
+  // impact crack: decaying noise through a band-pass
+  const len = 0.3, n = Math.floor(a.sampleRate*len), buf = a.createBuffer(1, n, a.sampleRate), ch = buf.getChannelData(0);
+  for (let i=0;i<n;i++) ch[i] = (Math.random()*2-1)*Math.pow(1-i/n, M.brittle ? 4 : 8);
+  const src = a.createBufferSource(); src.buffer = buf;
+  const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.7;
+  bp.frequency.value = M.brittle ? 2200 : verdict === 'pen' ? 3800 : M.E > 50e9 ? 2600 : 900;
+  src.connect(bp).connect(out); src.start(now);
+  // plate ring: clamped square plate modes 1, 2.04, 3.01, 3.66
+  const f0 = Math.min(3200, Math.max(45, plateFreq()));
+  const decay = M.ring * (verdict === 'pen' ? 0.6 : 1);
+  [1, 2.04, 3.01, 3.66].forEach((ratio, j) => {
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = f0*ratio*(1 + (Math.random()-0.5)*0.01);
+    const amp = (M.ring > 0.3 ? 0.45 : 0.2)/(j+1);
+    g.gain.setValueAtTime(amp, now); g.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.04, decay/(1+j*0.6)));
+    o.connect(g).connect(out); o.start(now); o.stop(now + decay + 0.1);
+  });
+  // heavy hits: low thump
+  if (Eeff > 5e3){
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.setValueAtTime(90, now); o.frequency.exponentialRampToValueAtTime(35, now+0.35);
+    g.gain.setValueAtTime(Math.min(0.9, Math.log10(Eeff)/7), now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.45);
+    o.connect(g).connect(out); o.start(now); o.stop(now+0.5);
+  }
+  // shatter: long bright crash plus scattered tinkles
+  if (verdict === 'shatter'){
+    const ln = Math.floor(a.sampleRate*1.6), b2 = a.createBuffer(1, ln, a.sampleRate), c2 = b2.getChannelData(0);
+    for (let i=0;i<ln;i++){ const q = i/ln; c2[i] = (Math.random()*2-1)*Math.pow(1-q, 2.2)*(Math.random() < 0.3 + 0.7*(1-q) ? 1 : 0.15); }
+    const s2 = a.createBufferSource(); s2.buffer = b2; const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = M.tempered || M.opacity ? 2600 : 900;
+    const g2 = a.createGain(); g2.gain.value = 0.7; s2.connect(hp).connect(g2).connect(out); s2.start(now);
+    if (M.opacity || M.tempered || M.Gc <= 40) for (let k=0;k<14;k++){
+      const t0 = now + 0.05 + Math.random()*0.9, o = a.createOscillator(), g = a.createGain();
+      o.frequency.value = 2500 + Math.random()*5500; g.gain.setValueAtTime(0.06, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05 + Math.random()*0.15);
+      o.connect(g).connect(out); o.start(t0); o.stop(t0 + 0.25);
+    }
+  }
+  // ricochet whine
+  if (verdict === 'ric'){
+    const o = a.createOscillator(), g = a.createGain(); o.type = 'triangle';
+    o.frequency.setValueAtTime(3400, now+0.02); o.frequency.exponentialRampToValueAtTime(900, now+0.6);
+    g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.12, now+0.05); g.gain.exponentialRampToValueAtTime(0.0001, now+0.65);
+    o.connect(g).connect(out); o.start(now); o.stop(now+0.7);
+  }
+}
+
+/* ---------- brittle fracture ---------- */
+const shards = [];
+let shardMat = null, plateGone = false, crackAcc = 0;
+function clipPoly(pts, h){
+  // Sutherland-Hodgman against the square |x|,|y| <= h
+  const edges = [[1,0,h],[-1,0,h],[0,1,h],[0,-1,h]];
+  for (const [nx, ny, c] of edges){
+    const out = [];
+    for (let i=0;i<pts.length;i++){
+      const A = pts[i], B = pts[(i+1)%pts.length];
+      const da = c - (nx*A.x + ny*A.y), db = c - (nx*B.x + ny*B.y);
+      if (da >= 0) out.push(A);
+      if ((da >= 0) !== (db >= 0)){ const t = da/(da-db); out.push({x:A.x+(B.x-A.x)*t, y:A.y+(B.y-A.y)*t}); }
+    }
+    pts = out; if (pts.length < 3) return null;
+  }
+  return pts;
+}
+function shatterAt(cx, cy, Rs, R, dir, M){
+  const full = M.tempered || Rs > S*0.7;
+  if (full) Rs = S*0.75;
+  const tv = Math.max(T, 0.0015);
+  if (!shardMat) shardMat = new THREE.MeshStandardMaterial({color:M.color, metalness:M.metal, roughness:M.rough+0.05, transparent:!!M.opacity, opacity:M.opacity ? Math.min(1, M.opacity+0.15) : 1, depthWrite:!M.opacity, side:THREE.DoubleSide, clippingPlanes:[clipPlane]});
+  // radial + concentric crack network around the impact
+  const nA = M.tempered ? 28 : 9 + Math.floor(Math.random()*6);
+  const nR = M.tempered ? 10 : Math.max(2, Math.min(6, Math.round(Rs/(S*0.07)) + 1));
+  const ang = Array.from({length:nA}, (_,i) => (i + (Math.random()-0.5)*0.6)/nA*Math.PI*2);
+  const V = [];
+  for (let j=0;j<=nR;j++){
+    const row = [];
+    for (let i=0;i<nA;i++){
+      const base = Rs*Math.pow(j/nR, 1.25), jit = (j === 0 || j === nR) ? 1 : 1 + (Math.random()-0.5)*0.28;
+      row.push({x:cx + Math.cos(ang[i])*base*jit, y:cy + Math.sin(ang[i])*base*jit});
+    }
+    V.push(row);
+  }
+  if (!full){
+    // remove the broken-out disc from the plate; edge kept just inside the polygon ring
+    const rh = Rs*Math.cos(Math.PI/nA)*0.9;
+    for (let i=holes.length-1;i>=0;i--){ const h = holes[i]; if (Math.hypot(h.x-cx, h.y-cy) + h.r < rh){ dropHole(h); holes.splice(i,1); } }
+    removeRemnantsNear(cx, cy, rh);
+    marks = marks.filter(m => Math.hypot(m.x-cx, m.y-cy) > rh);
+    holes.push({x:cx, y:cy, r:rh, heat:-1, shatter:true});
+    if (holes.length > MAXH) dropHole(holes.shift());
+    syncUniforms(); tubeFor(holes[holes.length-1]);
+  } else {
+    front.visible = back.visible = false; cap.visible = false; plateGone = true;
+    holes.forEach(dropHole); holes = []; remnants.forEach(m => { scene.remove(m); m.geometry.dispose(); }); remnants = [];
+    marks = []; syncUniforms();
+  }
+  const Ek = Math.min(1.6, 0.25 + Math.log10(R.Eeff + 1)/5);
+  const z0 = sampleZ(cx, cy);
+  for (let j=0;j<nR;j++) for (let i=0;i<nA;i++){
+    let poly = j === 0 ? [V[0][i], V[1][i], V[1][(i+1)%nA]] : [V[j][i], V[j+1][i], V[j+1][(i+1)%nA], V[j][(i+1)%nA]];
+    if (full){ poly = clipPoly(poly, S/2); if (!poly) continue; }
+    let gx = 0, gy = 0; poly.forEach(p => { gx += p.x; gy += p.y; }); gx /= poly.length; gy /= poly.length;
+    let area = 0; for (let k=0;k<poly.length;k++){ const A = poly[k], B = poly[(k+1)%poly.length]; area += A.x*B.y - B.x*A.y; }
+    if (Math.abs(area) < 1e-7) continue;
+    const shape = new THREE.Shape(poly.map(p => new THREE.Vector2(p.x-gx, p.y-gy)));
+    const g = new THREE.ExtrudeGeometry(shape, {depth:tv, bevelEnabled:false}); g.translate(0, 0, -tv);
+    const m = new THREE.Mesh(g, shardMat); m.position.set(gx, gy, z0); scene.add(m);
+    const d = Math.min(1, Math.hypot(gx-cx, gy-cy)/Rs), near = 1 - d;
+    const radial = new THREE.Vector3(gx-cx, gy-cy, 0).normalize();
+    const v = dir.clone().multiplyScalar(S*(0.15 + 1.7*near*near)*Ek)
+      .addScaledVector(radial, S*0.55*near*Ek)
+      .add(new THREE.Vector3((Math.random()-0.5), Math.random()*0.6, (Math.random()-0.5)).multiplyScalar(S*0.12*(0.3+near)));
+    const w = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(4 + 14*near);
+    shards.push({m, v, w, tv, delay: full ? d*0.12 : 0});
+  }
+  while (shards.length > 450){ const o = shards.shift(); scene.remove(o.m); o.m.geometry.dispose(); }
+  spawn(M.tempered ? 220 : 140, new THREE.Vector3(cx, cy, z0), dir, 2.2, S*1.6, new THREE.Color(M.color).multiplyScalar(0.9), 1.0);
+  return full ? 'full' : Rs;
+}
+function stepShards(dt){
+  const floor = grid.position.y;
+  for (const sd of shards){
+    if (sd.rest) continue;
+    if (sd.delay > 0){ sd.delay -= dt; continue; }
+    sd.v.y -= 1.6*S*dt;
+    const sz0 = sd.m.position.z;
+    sd.m.position.addScaledVector(sd.v, dt);
+    if (wit.mesh && sz0 > wit.z && sd.m.position.z <= wit.z){
+      const rad = sd.m.geometry.boundingSphere ? sd.m.geometry.boundingSphere.radius : (sd.m.geometry.computeBoundingSphere(), sd.m.geometry.boundingSphere.radius);
+      if (sd.v.length() > S*0.6) witnessMark(sd.m.position.x, sd.m.position.y, rad*0.6, false);
+      sd.v.z = Math.abs(sd.v.z)*0.25; sd.m.position.z = wit.z + 0.003;
+    }
+    sd.m.rotation.x += sd.w.x*dt; sd.m.rotation.y += sd.w.y*dt; sd.m.rotation.z += sd.w.z*dt;
+    if (sd.m.position.y < floor + sd.tv*0.6){
+      sd.m.position.y = floor + sd.tv*0.6;
+      sd.v.y = Math.abs(sd.v.y)*0.28; sd.v.x *= 0.55; sd.v.z *= 0.55; sd.w.multiplyScalar(0.45);
+      if (sd.v.length() < S*0.12){
+        sd.rest = true;
+        sd.m.rotation.set(-Math.PI/2, 0, Math.random()*Math.PI*2);
+        sd.m.position.y = floor + sd.tv + 0.0005;
+      }
+    }
+  }
+}
+
+/* ---------- ballistic gelatin ---------- */
+// 10% ordnance gelatin block (FBI 6x6x16 in ~ 15x15x40 cm). Drag model F = A(½ρCdv² + R),
+// yaw onset ~22 calibres for spitzer rifle bullets, fragmentation for jacketed rifle bullets above ~760 m/s,
+// expansion for hollow points, temporary cavity radius ~ sqrt(dE/dx).
+const GEL = {L:0.40, W:0.15, rho:1030, R:2.5e6, c:3.2e-4, dx:0.002, rmax:0.07};
+let gelMode = false, gel = null, gelShot = null;
+function gelSim(P){
+  const dx = GEL.dx; let v = P.v, m = P.m, x = 0, psi = 0, de = P.d;
+  const rifle = P.v > 600 && P.core !== 'plastic' && P.core !== 'hp';
+  const xy = 22*P.d, Lb = 3.5*P.d;
+  let frag = false, fragX = null, yawX = null, Edep = 0, maxR = 0, exitV = 0;
+  const S_ = [];
+  const fragOK = rifle && P.v > 760 && (P.core === 'lead' || P.core === 'steel');
+  while (v > 4 && x < 1.6){
+    let A, Cd;
+    if (P.core === 'plastic'){ A = Math.PI*de*de/4; Cd = 0.47; }
+    else if (P.core === 'hp'){ if (x > 0.015 && v > 250) de = Math.min(de*1.08, P.d*1.65); A = Math.PI*de*de/4; Cd = de > P.d*1.2 ? 0.42 : 0.3; }
+    else {
+      if (rifle && x > xy){ if (yawX === null) yawX = x; psi = Math.min(Math.PI, Math.PI/2*(x-xy)/(6*P.d)); }
+      const sn = Math.abs(Math.sin(psi)), cs = Math.abs(Math.cos(psi));
+      A = Math.PI*de*de/4*cs + Lb*de*sn;
+      Cd = !rifle ? 0.45 : psi > 2.6 ? 0.95 : 0.3 + 0.9*sn;
+      if (!frag && fragOK && psi > 1.0){ frag = true; fragX = x; }
+    }
+    let dE = A*(0.5*GEL.rho*Cd*v*v + GEL.R)*dx;
+    if (frag && x - fragX < 0.04) dE += 0.2*0.5*m*v*v/0.04*dx;
+    const E = 0.5*m*v*v - dE;
+    if (frag && x === fragX) m *= 0.5;
+    const vNew = E > 0 ? Math.sqrt(2*E/m) : 0;
+    if (x < GEL.L){ Edep += Math.min(dE, 0.5*m*v*v); const rr = Math.min(GEL.rmax, GEL.c*Math.sqrt(dE/dx)); maxR = Math.max(maxR, rr); }
+    S_.push({x, v, psi, de, r:Math.min(GEL.rmax, GEL.c*Math.sqrt(dE/dx))});
+    if (x < GEL.L && x + dx >= GEL.L) exitV = vNew;
+    v = vNew; x += dx;
+  }
+  const depth = Math.min(x, 1.6);
+  if (depth < GEL.L) exitV = 0;
+  return {samples:S_, depth, maxR, yawX, fragX, Edep, exitV, rifle};
+}
+function numSprite(txt){
+  const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  const g = c.getContext('2d'); g.fillStyle = '#e7eaee'; g.font = '600 20px IBM Plex Mono, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 32, 16);
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:t, transparent:true, depthWrite:false})); sp.scale.set(0.03, 0.015, 1); return sp;
+}
+function enterGelScene(){
+  front.visible = back.visible = false; frameGroup.visible = false; cap.visible = false;
+  if (!gel){
+    const grp = new THREE.Group();
+    const gm = new THREE.MeshStandardMaterial({color:0xe0a55a, emissive:0x2a1400, transparent:true, opacity:0.3, roughness:0.04, metalness:0, envMapIntensity:1.6, depthWrite:false, side:THREE.FrontSide, clippingPlanes:[clipPlane]});
+    const bg = new THREE.BoxGeometry(GEL.W, GEL.W, GEL.L, 12, 12, 48);
+    const block = new THREE.Mesh(bg, gm); block.position.z = -GEL.L/2; block.renderOrder = 2;
+    block.userData.orig = Float32Array.from(bg.attributes.position.array);
+    const tm = new THREE.MeshStandardMaterial({color:0x2c323a, metalness:0.5, roughness:0.6});
+    const table = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.025, 0.62), tm); table.position.set(0, -GEL.W/2 - 0.0135, -0.2);
+    for (const sx of [-1,1]) for (const sz of [0.05,-0.45]){ const l = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.22, 0.02), tm); l.position.set(sx*0.15, -GEL.W/2 - 0.135, sz); grp.add(l); }
+    // ruler along the block: 1 cm ticks, labels every 10 cm, FBI 30-45 cm band
+    const rx = GEL.W/2 + 0.025, ry = -GEL.W/2 + 0.001;
+    const tick = [];
+    for (let cm=0; cm<=50; cm++){ const z = -cm/100, len = cm % 10 === 0 ? 0.018 : cm % 5 === 0 ? 0.012 : 0.006; tick.push(rx, ry, z, rx + len, ry, z); }
+    const tg = new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.Float32BufferAttribute(tick, 3));
+    grp.add(new THREE.LineSegments(tg, new THREE.LineBasicMaterial({color:0x8e98a6})));
+    for (let cm=0; cm<=50; cm+=10){ const sp = numSprite(cm + ''); sp.position.set(rx + 0.035, ry + 0.006, -cm/100); grp.add(sp); }
+    const band = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 0.15), new THREE.MeshBasicMaterial({color:0x5fbf7a, transparent:true, opacity:0.35, side:THREE.DoubleSide, depthWrite:false}));
+    band.rotation.x = -Math.PI/2; band.position.set(rx + 0.01, ry + 0.0008, -0.375); grp.add(band);
+    const bl = numSprite('FBI'); bl.position.set(rx + 0.01, ry + 0.012, -0.375); bl.scale.set(0.026, 0.013, 1); grp.add(bl);
+    grp.add(block, table);
+    gel = {group:grp, block, mat:gm, tracks:[]};
+  }
+  scene.add(gel.group);
+  grid.position.y = -GEL.W/2 - 0.25; grid.scale.setScalar(1);
+  resetGel();
+}
+function exitGelScene(){ if (gel){ resetGel(); scene.remove(gel.group); } }
+function resetGel(){
+  if (!gel) return;
+  gel.tracks.forEach(dropTrack);
+  gel.tracks = []; gelShot = null; gel.block.scale.set(1,1,1); bulgeBlock(null);
+}
+const cavMat = new THREE.MeshStandardMaterial({color:0xfdf8f0, transparent:true, opacity:0.5, roughness:0.05, metalness:0.35, envMapIntensity:2, side:THREE.DoubleSide, depthWrite:false, clippingPlanes:[clipPlane]});
+const trackMat = new THREE.MeshStandardMaterial({color:0x2a1206, roughness:0.85, envMapIntensity:0.25, side:THREE.DoubleSide, clippingPlanes:[clipPlane]});
+const chunkMat = new THREE.MeshStandardMaterial({color:0x9a8a6a, metalness:0.7, roughness:0.45, clippingPlanes:[clipPlane]});
+const GRS = 28;
+function makeCavGeo(n){
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((n)*(GRS+1)*3), 3));
+  const idx = [];
+  for (let i=0;i<n-1;i++) for (let j=0;j<GRS;j++){ const a = i*(GRS+1)+j, b = a+GRS+1; idx.push(a, b, a+1, b, b+1, a+1); }
+  g.setIndex(idx); return g;
+}
+function gelFire(x, y){
+  if (gelShot) return;
+  const P = params();
+  if (P.core === 'heat' || P.core === 'hesh') return;
+  x = Math.max(-0.05, Math.min(0.05, x)); y = Math.max(-0.05, Math.min(0.05, y));
+  const G = gelSim(P);
+  const inside = G.samples.filter(s => s.x <= GEL.L);
+  const n = Math.max(2, inside.length);
+  // visual clock: entry to rest/exit spread over ~1.4 s regardless of speed, proportional to real transit time
+  let tReal = 0; const tArr = [];
+  for (const sm of inside){ tArr.push(tReal); tReal += GEL.dx/Math.max(sm.v, 30); }
+  const K = 1.4/Math.max(tReal, 1e-6);
+  const mesh = new THREE.Mesh(makeCavGeo(n), cavMat); mesh.frustumCulled = false; mesh.renderOrder = 1;
+  const pmesh = new THREE.Mesh(makeCavGeo(n), trackMat); pmesh.frustumCulled = false; pmesh.renderOrder = 3; gel.group.add(pmesh);
+  gel.group.add(mesh);
+  const bullet = makeBullet(P.d, P.core); bullet.position.set(x, y, 0.5); scene.add(bullet);
+  let frags = null;
+  if (G.fragX != null){
+    const pts = [];
+    for (let k=0;k<16;k++){ const a = Math.random()*Math.PI*2, sp = 0.15 + Math.random()*0.35, len = 0.03 + Math.random()*0.09;
+      pts.push({a, sp, len}); }
+    frags = {pts, z0:-G.fragX};
+  }
+  const track = {mesh, pmesh, n, samples:inside, tArr:tArr.map(t => t*K), x, y, G, P, frags, bullet};
+  gel.tracks.push(track);
+  if (gel.tracks.length > 8) dropTrack(gel.tracks.shift());
+  gelShot = {track, t:-0.35, hit:false};
+}
+function dropTrack(t){
+  for (const o of [t.mesh, t.pmesh, t.fragMesh, t.fragPts, t.cracks]) if (o){ gel.group.remove(o); o.geometry.dispose(); if (o.material !== cavMat && o.material !== trackMat) o.material.dispose(); }
+  if (t.chunks){ gel.group.remove(t.chunks); t.chunks.children.forEach(c => c.geometry.dispose()); }
+  if (t.bullet && t.bullet.parent === scene && !t.exitedFlying) scene.remove(t.bullet);
+}
+// gel surface bulges outward where the cavity gets close to it
+function bulgeBlock(tr){
+  const g = gel.block.geometry, pa = g.attributes.position.array, o = gel.block.userData.orig;
+  if (!tr){ pa.set(o); g.attributes.position.needsUpdate = true; g.computeVertexNormals(); return; }
+  for (let i=0;i<pa.length;i+=3){
+    const lx = o[i], ly = o[i+1], lz = o[i+2];
+    const depth = -(lz - GEL.L/2);                // block is centred at z = -L/2
+    const k = Math.min(tr.n-1, Math.max(0, Math.round(depth/GEL.dx)));
+    const rc = tr.curR ? tr.curR[k] : 0;
+    let nx = lx, ny = ly, nz = lz;
+    if (rc > 0.002){
+      const dx = lx - tr.x, dy = ly - tr.y, d = Math.max(0.02, Math.hypot(dx, dy));
+      const push = Math.min(0.03, 0.42*rc*rc/d);
+      nx += dx/d*push; ny = Math.max(-GEL.W/2, ny + dy/d*push);
+    }
+    pa[i] = nx; pa[i+1] = ny; pa[i+2] = nz;
+  }
+  g.attributes.position.needsUpdate = true; g.computeVertexNormals();
+}
+// stellate fissures left around the permanent channel
+function makeCracks(tr){
+  const P = [], step = 0.006;
+  for (let x=0; x < Math.min(tr.G.depth, GEL.L) - step; x += step){
+    const k = Math.min(tr.samples.length-1, Math.round(x/GEL.dx)), sm = tr.samples[k];
+    const len = sm.r*(0.45 + Math.random()*0.35);
+    if (len < 0.004) continue;
+    const nC = sm.r > 0.03 ? 3 + Math.floor(Math.random()*3) : 1 + Math.floor(Math.random()*2);
+    for (let c=0;c<nC;c++){
+      const a = Math.random()*Math.PI*2, L = len*(0.5 + Math.random()*0.6);
+      const rp = Math.max(sm.de*0.55, sm.r*0.11)*0.9, bx = tr.x + Math.cos(a)*rp, by = tr.y + Math.sin(a)*rp;
+      const ex = tr.x + Math.cos(a)*(rp + L), ey = tr.y + Math.sin(a)*(rp + L);
+      const z0 = -x, z1 = -(x + step*(1.2 + Math.random())), zt = (z0 + z1)/2 + (Math.random()-0.5)*step;
+      P.push(bx, by, z0,  bx, by, z1,  Math.max(-GEL.W/2, Math.min(GEL.W/2, ex)), Math.max(-GEL.W/2, Math.min(GEL.W/2, ey)), zt);
+    }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({color:0xfff3df, transparent:true, opacity:0, roughness:0.2, side:THREE.DoubleSide, depthWrite:false, clippingPlanes:[clipPlane]}));
+  m.renderOrder = 1; return m;
+}
+function cavF(tau){
+  const Tg = 0.28, Td = 0.45, Tp = 0.26;
+  if (tau < 0) return 0;
+  if (tau < Tg) return Math.sin(Math.PI/2*tau/Tg);
+  return Math.max(0, Math.exp(-(tau-Tg)/Td)*Math.cos(2*Math.PI*(tau-Tg)/Tp));
+}
+function writeTube(mesh, tr, radii, wobF){
+  const pos = mesh.geometry.attributes.position.array;
+  for (let i=0;i<tr.n;i++){
+    const sm = tr.samples[Math.min(i, tr.samples.length-1)];
+    const z = -Math.min(sm.x, GEL.L - 0.0005), rad = radii[i];
+    for (let j=0;j<=GRS;j++){
+      const a = j/GRS*Math.PI*2, wob = 1 + (wobF ? wobF(a, i) : 0);
+      const o = (i*(GRS+1)+j)*3;
+      pos[o] = tr.x + Math.cos(a)*rad*wob; pos[o+1] = tr.y + Math.sin(a)*rad*wob; pos[o+2] = z;
+    }
+  }
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+function writeCav(tr, t){
+  if (!tr.curR){ tr.curR = new Float32Array(tr.n); tr.tcR = new Float32Array(tr.n); tr.pcR = new Float32Array(tr.n); tr.seed = Math.random()*10; }
+  let pulse = 0;
+  for (let i=0;i<tr.n;i++){
+    const sm = tr.samples[Math.min(i, tr.samples.length-1)];
+    const ti = tr.tArr[Math.min(i, tr.tArr.length-1)];
+    // permanent channel: crushed/torn gel ~ calibre in the stable part, wider where the bullet yaws or breaks up
+    const rp = t >= ti ? Math.max(sm.de*0.55, sm.r*0.11) : 0;
+    const f = cavF(t - ti);
+    const rt = rp + (sm.r - rp)*f;
+    tr.pcR[i] = rp; tr.tcR[i] = f > 0.001 ? rt : 0; tr.curR[i] = Math.max(rp, rt);
+    pulse = Math.max(pulse, f*sm.r);
+  }
+  const sd = tr.seed;
+  writeTube(tr.pmesh, tr, tr.pcR, (a, i) => 0.18*Math.sin(a*3 + sd) + 0.08*Math.sin(a*5 + sd*2) + 0.1*Math.sin(i*1.3 + sd)*Math.sin(i*0.37));
+  if (tr.mesh) writeTube(tr.mesh, tr, tr.tcR, null);
+  return pulse;
+}
+function gelStep(dt){
+  if (!gelShot) return;
+  const sh = gelShot, tr = sh.track, P = tr.P, G = tr.G;
+  sh.t += dt;
+  const b = tr.bullet;
+  if (sh.t < 0){ b.position.z = 0.5 * (-sh.t/0.35); b.rotation.set(0,0,0); return; }
+  if (!sh.hit){ sh.hit = true; playImpact(5, 'dent'); spawn(30, new THREE.Vector3(tr.x, tr.y, 0), new THREE.Vector3(0,0,1), 1.5, 0.4, {r:0.95, g:0.75, b:0.4}, 0.5); }
+  // bullet position along track
+  const ta = tr.tArr, last = ta.length - 1;
+  let k = 0; while (k < last && ta[k+1] < sh.t) k++;
+  const sm = tr.samples[k];
+  if (sh.t <= ta[last] + 1e-3 || !b.parent){
+    if (b.parent){
+      b.position.set(tr.x, tr.y, -sm.x);
+      b.rotation.set(sm.psi, 0, 0);
+      if (b.userData.petals){
+        const e = Math.max(0, Math.min(1, (sm.de/P.d - 1)/0.65));
+        b.userData.petals.forEach(h => { h.rotation.z = 0.35 - 2.3*e; });
+        b.scale.set(1, 1, 1 - 0.3*e);
+      } else if (G.fragX != null && sm.x >= G.fragX){
+        b.scale.set(0.9, 0.9, 0.5);
+      }
+    }
+  } else if (G.exitV > 0 && !sh.exited){
+    sh.exited = true;
+    tr.exitedFlying = true;
+    launch(b, new THREE.Vector3(0, 0, -1), 0.6*Math.max(0.3, G.exitV/P.v), 1.5);
+    spawn(80, new THREE.Vector3(tr.x, tr.y, -GEL.L), new THREE.Vector3(0,0,-1), 1.4, 0.5, {r:0.92, g:0.7, b:0.36}, 0.8);
+  } else if (G.exitV === 0 && G.fragX != null && sm.x > G.fragX + 0.02 && b.parent){
+    // fragmented core keeps going; jacket pieces stay behind
+  }
+  // fragment tracks grow from the fragmentation point
+  if (tr.frags){
+    const tf = ta[Math.min(last, Math.round(G.fragX/GEL.dx))];
+    const q = Math.max(0, Math.min(1, (sh.t - tf)/0.25));
+    if (q > 0){
+      if (!tr.fragMesh){
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tr.frags.pts.length*6), 3));
+        tr.fragMesh = new THREE.LineSegments(g, new THREE.LineBasicMaterial({color:0x6b4318, transparent:true, opacity:0.7, clippingPlanes:[clipPlane]})); gel.group.add(tr.fragMesh);
+      }
+      const pa = tr.fragMesh.geometry.attributes.position.array;
+      tr.frags.pts.forEach((f, i) => {
+        const L = f.len*q, z0 = tr.frags.z0;
+        let ex = tr.x + Math.cos(f.a)*f.sp*L, ey = tr.y + Math.sin(f.a)*f.sp*L, ez = Math.max(-GEL.L, z0 - L);
+        ex = Math.max(-GEL.W/2, Math.min(GEL.W/2, ex)); ey = Math.max(-GEL.W/2, Math.min(GEL.W/2, ey));
+        pa.set([tr.x, tr.y, z0, ex, ey, ez], i*6);
+      });
+      tr.fragMesh.geometry.attributes.position.needsUpdate = true;
+      if (!tr.chunks){
+        tr.chunks = new THREE.Group();
+        tr.frags.pts.forEach(() => { const sz = 0.0012 + Math.random()*0.0022; const c = new THREE.Mesh(new THREE.IcosahedronGeometry(sz, 0), chunkMat); c.scale.set(1, 0.5 + Math.random(), 0.6 + Math.random()); c.rotation.set(Math.random()*6, Math.random()*6, 0); tr.chunks.add(c); });
+        gel.group.add(tr.chunks);
+        spawn(40, new THREE.Vector3(tr.x, tr.y, tr.frags.z0), new THREE.Vector3(0,0,-1), 2.2, 0.25, {r:0.75, g:0.62, b:0.42}, 0.4);
+      }
+      tr.chunks.children.forEach((c, i) => c.position.set(pa[i*6+3], pa[i*6+4], pa[i*6+5]));
+      if (q >= 1 && !tr.fragPts){
+        const pg = new THREE.BufferGeometry(), arr = [];
+        for (let i=0;i<pa.length;i+=6) arr.push(pa[i+3], pa[i+4], pa[i+5]);
+        pg.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+        tr.fragPts = new THREE.Points(pg, new THREE.PointsMaterial({color:0x2a1a0c, size:0.003, clippingPlanes:[clipPlane]}));
+        gel.group.add(tr.fragPts);
+      }
+    }
+  }
+  writeCav(tr, sh.t);
+  bulgeBlock(tr);
+  if (sh.t > ta[Math.min(last, 10)] + 0.3){
+    if (!tr.cracks){ tr.cracks = makeCracks(tr); gel.group.add(tr.cracks); }
+    tr.cracks.material.opacity = Math.min(0.42, tr.cracks.material.opacity + dt*0.5);
+  }
+  if (sh.t > ta[last] + 2.2){
+    writeCav(tr, 99); gel.group.remove(tr.mesh); tr.mesh.geometry.dispose(); tr.mesh = null; bulgeBlock(null);
+    showGelResult(tr); gelShot = null; shots++;
+  }
+}
+function showGelResult(tr){
+  const G = tr.G;
+  $('r-kv').hidden = true; $('g-kv').hidden = false; $('s-kv').hidden = true; $('g-prof').toggleAttribute('hidden', false);
+  const el = $('r-verdict');
+  el.textContent = G.exitV > 0 ? '블록 관통' : '블록 내 정지'; el.className = 'verdict ' + (G.exitV > 0 ? 'v-pen' : 'v-blind');
+  $('g-depth').textContent = G.exitV > 0 ? '40 cm 초과 (추정 ' + (G.depth*100).toFixed(0) + ' cm)' : (G.depth*100).toFixed(1) + ' cm';
+  $('g-tc').textContent = (G.maxR*200).toFixed(1) + ' cm';
+  $('g-yaw').textContent = G.yawX != null ? (G.yawX*100).toFixed(1) + ' cm' : (tr.P.core === 'hp' ? '— (확장, 안정 비행)' : '—');
+  $('g-frag').textContent = G.fragX != null ? (G.fragX*100).toFixed(1) + ' cm에서 발생' : '없음';
+  const lastS = G.samples[G.samples.length-1];
+  $('g-state').textContent = tr.P.core === 'hp' ? ('확장 ' + (lastS.de*1000).toFixed(1) + ' mm (×' + (lastS.de/tr.P.d).toFixed(2) + ')')
+    : G.fragX != null ? '파쇄 · 잔존 질량 약 50%' : tr.P.core === 'plastic' ? '원형 유지' : G.yawX != null ? '원형 · 뒤집힘' : '원형 유지';
+  const ins = tr.samples; let pc = 0; ins.forEach(s => pc += Math.max(s.de*0.55, s.r*0.08)); pc = pc/Math.max(1, ins.length)*2;
+  $('g-pc').textContent = (pc*1000).toFixed(1) + ' mm';
+  $('g-edep').textContent = fmtJ(G.Edep) + ' / ' + fmtJ(0.5*tr.P.m*tr.P.v*tr.P.v);
+  $('g-exit').textContent = G.exitV > 0 ? Math.round(G.exitV) + ' m/s' : '—';
+  // cavity profile: depth on x (0-60 cm), radius mirrored on y
+  const W = 260, H = 64, mx = 0.6, ys = (H/2 - 4)/GEL.rmax;
+  const X = d => 4 + (W-8)*Math.min(1, d/mx);
+  let up = '', dn = '';
+  G.samples.forEach((s, i) => { if (s.x > mx) return; const xx = X(s.x).toFixed(1), rr = (s.r*ys).toFixed(1); up += (i ? 'L' : 'M') + xx + ' ' + (H/2 - rr); dn = 'L' + xx + ' ' + (H/2 + +rr) + dn; });
+  $('g-prof').innerHTML = `<rect x="${X(0.30)}" y="2" width="${X(0.45)-X(0.30)}" height="${H-4}" fill="#5fbf7a" opacity="0.18"/>
+    <line x1="${X(0.4)}" y1="2" x2="${X(0.4)}" y2="${H-2}" stroke="#8e98a6" stroke-dasharray="3 3" stroke-width="1"/>
+    <path d="${up}${dn}Z" fill="#f2a93b" opacity="0.55" stroke="#f2a93b" stroke-width="1"/>
+    <line x1="4" y1="${H/2}" x2="${X(Math.min(G.depth, mx))}" y2="${H/2}" stroke="#e7eaee" stroke-width="1.5"/>
+    <text x="${X(0.4)+3}" y="11" font-size="9" fill="#8e98a6" font-family="IBM Plex Mono, monospace">40cm</text>
+    <text x="${X(0.30)+2}" y="${H-5}" font-size="8" fill="#5fbf7a" font-family="IBM Plex Mono, monospace">FBI 30–45</text>`;
+  addLog(tr.P, G.exitV > 0 ? '블록 관통' : '블록 내 정지', G.exitV > 0 ? 'pen' : 'blind', (G.depth*100).toFixed(1) + ' cm');
+  $('result').hidden = false;
+}
+
+/* ---------- particle simulation mode (axisymmetric MLS-MPM, precomputed in a worker, then replayed) ---------- */
+// Runs in a Web Worker. Normal impact is rotationally symmetric, so the r-z half-plane is solved and revolved for display.
+// Explicit MLS-MPM with quadratic B-splines, hypoelastic J2 plasticity (Johnson-Cook-like hardening and rate term),
+// linear EOS with bulk viscosity, ductile failure by plastic strain and spall by tensile pressure.
+function simWorkerMain(){
+  self.onmessage = e => { try { run(e.data); } catch (err){ self.postMessage({type:'error', msg:String(err && err.stack || err)}); } };
+  function snap(N, pr, pz, vr, vz, ep, fail, out, mat, MT, v0, t){
+    const Pz = new Float32Array(N*2), I = new Uint8Array(N*2);
+    for (let p=0;p<N;p++){
+      Pz[2*p] = out[p] ? -1 : pr[p]; Pz[2*p+1] = pz[p];
+      I[2*p] = fail[p] ? 255 : Math.min(254, Math.round(ep[p]/MT[mat[p]].efVis*254));
+      I[2*p+1] = Math.min(255, Math.round(Math.hypot(vr[p], vz[p])/v0*255));
+    }
+    return {t, P:Pz, I};
+  }
+  function run(c){
+    const dx = c.dx, inv = 1/dx, half = dx/2, T = c.T, R = c.R, z0 = c.z0, z1 = c.z1;
+    const NR = Math.ceil(R*inv) + 5, NZ = Math.ceil((z1 - z0)*inv) + 5, NN = NR*NZ;
+    const cap = c.maxN;
+    const F = () => new Float32Array(cap);
+    const pr = F(), pz = F(), vr = F(), vz = F(), m = F(), V0 = F(), J = F(), pz0 = F();
+    const srr = F(), szz = F(), srz = F(), stt = F(), pp = F(), ep = F(), Tk = F();
+    const Crr = F(), Crz = F(), Czr = F(), Czz = F();
+    const mat = new Uint8Array(cap), fail = new Uint8Array(cap), out = new Uint8Array(cap);
+    let N = 0;
+    const MT = c.mats.map(M => Object.assign({}, M, {c: Math.sqrt((M.K + 4/3*M.G)/M.rho)}));
+    for (let r = dx/4; r < R - 2*dx; r += half) for (let z = dx/4; z < T; z += half){
+      if (N >= cap) break;
+      const vol = half*half*2*Math.PI*r;
+      pr[N] = r; pz[N] = z; pz0[N] = z; vz[N] = 0; V0[N] = vol; m[N] = vol*MT[0].rho; J[N] = 1; mat[N] = 0; Tk[N] = MT[0].T0; N++;
+    }
+    const nPlate = N;
+    const P = c.proj, Rp = P.R, Ln = P.Ln, Lb = P.Lb, Ltot = P.sphere ? 2*Rp : Ln + Lb, ztip = -dx*0.6;
+    for (let r = dx/4; r < Rp + dx; r += half) for (let s = dx/4; s < Ltot; s += half){
+      let inside;
+      if (P.sphere) inside = r*r + (s - Rp)*(s - Rp) <= Rp*Rp;
+      else if (s < Ln){ const q = 1 - s/Ln; inside = r <= Rp*(1 - q*q) + dx*0.15; }
+      else inside = r <= Rp;
+      if (!inside || N >= cap) continue;
+      const vol = half*half*2*Math.PI*r;
+      pr[N] = r; pz[N] = ztip - s; pz0[N] = pz[N]; vz[N] = c.v0; V0[N] = vol; m[N] = vol*MT[1].rho; J[N] = 1; mat[N] = 1; Tk[N] = MT[1].T0; N++;
+    }
+    let mProj = 0; for (let p=nPlate;p<N;p++) mProj += m[p];
+    const cmax = Math.max(...MT.map(o => o.c));
+    // two velocity fields (target = 0, projectile = 1) so bodies can slide past and separate; contact is enforced only on approach
+    const NN2 = 2*NN, gm = new Float32Array(NN2), gpr = new Float32Array(NN2), gpz = new Float32Array(NN2), gfr = new Float32Array(NN2), gfz = new Float32Array(NN2), gnr = new Float32Array(NN2), gnz = new Float32Array(NN2);
+    const frames = [];
+    let spf = Math.max(1, Math.floor(c.estSteps/c.nFrames));
+    let t = 0, step = 0, vmax = c.v0;
+    frames.push(snap(N, pr, pz, vr, vz, ep, fail, out, mat, MT, c.v0, t));
+    const wr = new Float64Array(3), wz = new Float64Array(3), dwr = new Float64Array(3), dwz = new Float64Array(3);
+    let endAt = Infinity, contact = false;
+    const t0 = Date.now();
+    while (step < c.maxSteps && t < c.tMax && t < endAt){
+      const dt = c.cfl*dx/(cmax + vmax);
+      gm.fill(0); gpr.fill(0); gpz.fill(0); gfr.fill(0); gfz.fill(0); gnr.fill(0); gnz.fill(0);
+      // particle -> grid
+      for (let p=0;p<N;p++){
+        if (out[p]) continue;
+        const xr = pr[p]*inv + 1, xz = (pz[p] - z0)*inv + 1;
+        const br = Math.floor(xr - 0.5), bz = Math.floor(xz - 0.5), fr = xr - br, fz = xz - bz;
+        wr[0] = 0.5*(1.5-fr)*(1.5-fr); wr[1] = 0.75-(fr-1)*(fr-1); wr[2] = 0.5*(fr-0.5)*(fr-0.5);
+        dwr[0] = fr-1.5; dwr[1] = -2*(fr-1); dwr[2] = fr-0.5;
+        wz[0] = 0.5*(1.5-fz)*(1.5-fz); wz[1] = 0.75-(fz-1)*(fz-1); wz[2] = 0.5*(fz-0.5)*(fz-0.5);
+        dwz[0] = fz-1.5; dwz[1] = -2*(fz-1); dwz[2] = fz-0.5;
+        const V = V0[p]*J[p], q = pp[p];
+        const Srr = srr[p]-q, Szz = szz[p]-q, Srz = srz[p], hoop = V*(stt[p]-q)/pr[p];
+        const mp = m[p], a = vr[p], b = vz[p], c1 = Crr[p], c2 = Crz[p], c3 = Czr[p], c4 = Czz[p], off = mat[p]*NN;
+        for (let i=0;i<3;i++){
+          const ni = br+i, dR = (ni - xr)*dx, row = ni*NZ + off;
+          for (let j=0;j<3;j++){
+            const nj = bz+j, idx = row + nj, w = wr[i]*wz[j];
+            const gr = dwr[i]*wz[j]*inv, gz = wr[i]*dwz[j]*inv, dZ = (nj - xz)*dx, mw = mp*w;
+            gm[idx] += mw;
+            gpr[idx] += mw*(a + c1*dR + c2*dZ);
+            gpz[idx] += mw*(b + c3*dR + c4*dZ);
+            gfr[idx] -= V*(Srr*gr + Srz*gz) + hoop*w;
+            gfz[idx] -= V*(Srz*gr + Szz*gz);
+            gnr[idx] += mp*gr; gnz[idx] += mp*gz;
+          }
+        }
+      }
+      // grid update (per body), then frictionless contact where both bodies share a node and are approaching
+      for (let i=0;i<NR;i++){
+        const rn = (i-1)*dx, rim = i >= NR-3;
+        for (let j=0;j<NZ;j++){
+          const idx = i*NZ+j, fixed = rim || z0 + (j-1)*dx >= c.backFix;
+          let u0r = 0, u0z = 0, u1r = 0, u1z = 0;
+          const m0 = gm[idx], m1 = gm[NN+idx];
+          if (m0 > 0){ u0r = (gpr[idx] + dt*gfr[idx])/m0; u0z = (gpz[idx] + dt*gfz[idx])/m0; }
+          if (m1 > 0){ u1r = (gpr[NN+idx] + dt*gfr[NN+idx])/m1; u1z = (gpz[NN+idx] + dt*gfz[NN+idx])/m1; }
+          if (m0 > 0 && m1 > 0){
+            let nr = gnr[idx] - gnr[NN+idx], nz = gnz[idx] - gnz[NN+idx];
+            const nl = Math.hypot(nr, nz);
+            if (nl > 0){
+              nr /= nl; nz /= nl;
+              // n points from the target toward the projectile; approach means relative velocity against n
+              if ((u1r - u0r)*nr + (u1z - u0z)*nz < 0){
+                const mt = m0 + m1, cr = (m0*u0r + m1*u1r)/mt, cz = (m0*u0z + m1*u1z)/mt;
+                const d0 = (cr - u0r)*nr + (cz - u0z)*nz, d1 = (cr - u1r)*nr + (cz - u1z)*nz;
+                u0r += d0*nr; u0z += d0*nz; u1r += d1*nr; u1z += d1*nz;
+              }
+            }
+          }
+          if (rn <= 0){ u0r = 0; u1r = 0; }
+          if (fixed){ u0r = u0z = u1r = u1z = 0; }
+          gpr[idx] = u0r; gpz[idx] = u0z; gpr[NN+idx] = u1r; gpz[NN+idx] = u1z;
+        }
+      }
+      // grid -> particle, constitutive update
+      let vm = 0;
+      for (let p=0;p<N;p++){
+        if (out[p]) continue;
+        const xr = pr[p]*inv + 1, xz = (pz[p] - z0)*inv + 1;
+        const br = Math.floor(xr - 0.5), bz = Math.floor(xz - 0.5), fr = xr - br, fz = xz - bz;
+        wr[0] = 0.5*(1.5-fr)*(1.5-fr); wr[1] = 0.75-(fr-1)*(fr-1); wr[2] = 0.5*(fr-0.5)*(fr-0.5);
+        dwr[0] = fr-1.5; dwr[1] = -2*(fr-1); dwr[2] = fr-0.5;
+        wz[0] = 0.5*(1.5-fz)*(1.5-fz); wz[1] = 0.75-(fz-1)*(fz-1); wz[2] = 0.5*(fz-0.5)*(fz-0.5);
+        dwz[0] = fz-1.5; dwz[1] = -2*(fz-1); dwz[2] = fz-0.5;
+        let nvr = 0, nvz = 0, c1 = 0, c2 = 0, c3 = 0, c4 = 0, lrr = 0, lrz = 0, lzr = 0, lzz = 0;
+        const k4 = 4*inv*inv, off = mat[p]*NN;
+        for (let i=0;i<3;i++){
+          const ni = br+i, dR = (ni - xr)*dx, row = ni*NZ + off;
+          for (let j=0;j<3;j++){
+            const nj = bz+j, idx = row + nj, w = wr[i]*wz[j];
+            const ur = gpr[idx], uz = gpz[idx], gr = dwr[i]*wz[j]*inv, gz = wr[i]*dwz[j]*inv, dZ = (nj - xz)*dx;
+            nvr += w*ur; nvz += w*uz;
+            const kw = k4*w; c1 += kw*ur*dR; c2 += kw*ur*dZ; c3 += kw*uz*dR; c4 += kw*uz*dZ;
+            lrr += ur*gr; lrz += ur*gz; lzr += uz*gr; lzz += uz*gz;
+          }
+        }
+        vr[p] = nvr; vz[p] = nvz; Crr[p] = c1; Crz[p] = c2; Czr[p] = c3; Czz[p] = c4;
+        let r = pr[p] + dt*nvr; if (r < dx*0.05) r = dx*0.05;
+        pr[p] = r; pz[p] += dt*nvz;
+        if (r > (NR-4)*dx || pz[p] < z0 + dx || pz[p] > z1 - dx){ out[p] = 1; continue; }
+        const sp2 = nvr*nvr + nvz*nvz; if (sp2 > vm) vm = sp2;
+        // constitutive
+        const M = MT[mat[p]];
+        const Drr = lrr, Dzz = lzz, Drz = 0.5*(lrz + lzr), Dtt = nvr/r, W = 0.5*(lrz - lzr);
+        const trD = Drr + Dzz + Dtt;
+        let Jp = J[p]*(1 + dt*trD); if (Jp < 0.15) Jp = 0.15; if (Jp > 8) Jp = 8; J[p] = Jp;
+        const rho = M.rho/Jp;
+        let qv = 0; if (trD < 0) qv = rho*dx*(1.5*dx*trD*trD - 0.08*M.c*trD);
+        let press = M.K*(1 - Jp) + qv;
+        // failed (fractured/comminuted) material: no tension, but keeps frictional strength under compression (mu*p, capped at intact yield)
+        if (fail[p] && press < 0) press = 0;
+        const dm = trD/3, drr = Drr - dm, dzz = Dzz - dm, dtt = Dtt - dm, G2 = 2*M.G*dt;
+        let a = srr[p], b = szz[p], cc = srz[p], d = stt[p];
+        const na = a + G2*drr + 2*dt*W*cc, nb = b + G2*dzz - 2*dt*W*cc, nc = cc + G2*Drz + dt*W*(b - a), nd = d + G2*dtt;
+        a = na; b = nb; cc = nc; d = nd;
+        const eqRate = Math.sqrt(2/3*(drr*drr + dzz*dzz + dtt*dtt + 2*Drz*Drz));
+        const e_ = ep[p];
+        let sy = (M.A + (e_ > 0 ? M.B*Math.pow(Math.min(e_, 4), M.n) : 0))*(eqRate > 1 ? 1 + M.C*Math.log(eqRate) : 1);
+        // Johnson-Cook thermal softening: adiabatic heating from plastic work weakens the hottest (most sheared) material
+        const Ts = (Tk[p] - 293)/(M.Tm - 293);
+        sy *= Ts <= 0 ? 1 : Ts >= 1 ? 0 : 1 - Math.pow(Ts, M.mT);
+        if (fail[p]) sy = Math.min(sy, M.mu*press);
+        const qe = Math.sqrt(1.5*(a*a + b*b + d*d + 2*cc*cc));
+        if (qe > sy){
+          const f = sy/qe, dep = (qe - sy)/(3*M.G);
+          a *= f; b *= f; cc *= f; d *= f; ep[p] += dep;
+          Tk[p] += 0.9*sy*dep/(M.rho*M.cp);
+        }
+        srr[p] = a; szz[p] = b; srz[p] = cc; stt[p] = d; pp[p] = press;
+        // failure strain grows under compression (Johnson-Cook triaxiality idea): material mostly fails where it is pulled apart
+        const efEff = M.ef*Math.min(8, Math.exp(1.5*Math.max(0, press)/Math.max(qe, 1e6)));
+        if (!fail[p] && (ep[p] > efEff || press < -M.spall)){ fail[p] = 1; if (pp[p] < 0) pp[p] = 0; }
+      }
+      vmax = Math.sqrt(vm);
+      t += dt; step++;
+      if (step % spf === 0){ frames.push(snap(N, pr, pz, vr, vz, ep, fail, out, mat, MT, c.v0, t)); if (frames.length > 170){ for (let k=frames.length-1;k>0;k-=2) frames.splice(k,1); spf *= 2; } }
+      if (step % 25 === 0){
+        let ke = 0, rearMin = Infinity, front = -Infinity, mom = 0, nIn = 0, fwd = 0;
+        for (let p=nPlate;p<N;p++){ if (out[p]) continue; if (vz[p] > 0.05*c.v0) fwd++; ke += 0.5*m[p]*(vr[p]*vr[p] + vz[p]*vz[p]); mom += m[p]*vz[p]; rearMin = Math.min(rearMin, pz[p]); front = Math.max(front, pz[p]); nIn++; }
+        if (!contact && front > 0) contact = true;
+        if (endAt === Infinity && contact){
+          if (ke < 0.004*c.ke0) endAt = t*1.25 + 4*dx/c.v0;
+          else if (mom < 0 && fwd === 0) endAt = t*1.3;
+          else if (nIn > 0 && rearMin > T + 2*dx) endAt = t*1.15 + 6*dx/c.v0;
+        }
+        if (step % 200 === 0) self.postMessage({type:'progress', p: Math.min(0.99, Math.max(t/Math.min(c.tMax, endAt), step/c.maxSteps)), N});
+      }
+    }
+    frames.push(snap(N, pr, pz, vr, vz, ep, fail, out, mat, MT, c.v0, t));
+    // ----- results -----
+    let mBeyond = 0, pBeyond = 0, mIntact = 0, depth = 0, bulge = 0, mLost = 0, mPlug = 0;
+    for (let p=nPlate;p<N;p++){
+      if (!fail[p]) mIntact += m[p];
+      if (pz[p] > T + dx){ mBeyond += m[p]; pBeyond += m[p]*vz[p]; }
+      depth = Math.max(depth, Math.min(pz[p], T));
+    }
+    for (let p=0;p<nPlate;p++){
+      if (!fail[p] && pz0[p] > T - dx && pz[p] - pz0[p] > bulge) bulge = pz[p] - pz0[p];
+      const moving = Math.hypot(vr[p], vz[p]) > 15;
+      if ((fail[p] && moving) || out[p]) mLost += m[p];
+      if (pz[p] > T + dx && vz[p] > 10) mPlug += m[p];
+    }
+    const res = {pen: mBeyond > 0.25*mProj || (mPlug > 0 && mBeyond > 0.05*mProj), vres: mBeyond > 0 ? pBeyond/mBeyond : 0, intact: mIntact/mProj,
+      beyond: mBeyond/mProj, depth: Math.max(0, depth), bulge, mLost, mPlug, steps: step, t, N, ms: Date.now() - t0};
+    const transfer = [];
+    frames.forEach(f => { transfer.push(f.P.buffer, f.I.buffer); });
+    self.postMessage({type:'done', frames, mat:mat.slice(0, N), N, nPlate, res}, transfer.concat([]));
+  }
+}
+
+const SIM_PROJ = {
+  steel:   {rho:7850,  E:200e9, nu:0.29, A:1.2e9,  B:0.5e9,  n:0.26, ef:0.15, cp:477, Tm:1793,  col:0xd4a24c},
+  lead:    {rho:11340, E:16e9,  nu:0.42, A:0.03e9, B:0.06e9, n:0.4,  ef:1.6, cp:130, Tm:600,   col:0x8a8f96},
+  hp:      {rho:11340, E:16e9,  nu:0.42, A:0.03e9, B:0.06e9, n:0.4,  ef:1.6, cp:130, Tm:600,   col:0x8a8f96},
+  tungsten:{rho:17500, E:360e9, nu:0.28, A:1.5e9,  B:0.3e9,  n:0.2,  ef:0.15, cp:134, Tm:1723,  col:0x707780},
+  du:      {rho:18600, E:170e9, nu:0.3,  A:1.0e9,  B:0.4e9,  n:0.25, ef:0.22, cp:116, Tm:1400,  col:0x5d6a52},
+  plastic: {rho:1000,  E:3e9,   nu:0.38, A:0.06e9, B:0.02e9, n:0.3,  ef:0.6, cp:1200, Tm:420,   col:0xf2f0ea}
+};
+const SIM_CP = {mild:470, ar500:470, rha:477, al:900, ti:523, sus:500, cu:385, pb:130, ceram:880, pc:1200, wood:1700, conc:880, ice:2100, glass:840, tglass:840};
+const SIM_TM = {mild:1793, ar500:1793, rha:1793, al:925, ti:1900, sus:1700, cu:1356, pb:600, ceram:2300, pc:420, wood:600, conc:1500, ice:273, glass:1400, tglass:1400};
+const SIM_EF = {mild:0.4, ar500:0.12, rha:0.2, al:0.3, ti:0.18, sus:0.6, cu:0.8, pb:1.2, ceram:0.006, pc:0.9, wood:0.08, conc:0.004, ice:0.01, glass:0.002, tglass:0.002};
+function elastic(E, nu){ return {K:E/(3*(1-2*nu)), G:E/(2*(1+nu))}; }
+const SIM = {on:false, worker:null, data:null, group:null, pts:null, geo:null, frame:0, ft:0, playing:false, mode:'mat', busy:false};
+let simMode = false;
+function buildSimCfg(){
+  const Pm = params(), M = MATS[matKey];
+  const pm = SIM_PROJ[Pm.core] || SIM_PROJ.steel;
+  const brittle = !!M.brittle, nuT = brittle ? 0.22 : 0.3;
+  const efT = (SIM_EF[matKey] ?? 0.3)*(M.coldBrittle ? 0.15 : 1);
+  const plate = Object.assign({rho:M.rho}, elastic(M.E, nuT), {
+    A:M.ys, B:brittle ? 0 : Math.max(0.1*M.ys, (M.uts - M.ys)*2), n:0.3, C:0.014, ef:efT, spall:brittle ? 1.5*M.uts : 3*M.uts, efVis:Math.max(efT, 0.02),
+    mu: brittle ? 1.0 : 0.9, cp: SIM_CP[matKey] || 500, Tm: SIM_TM[matKey] || 1700, mT: 1.0, T0: 273 + (M.tempC ?? 20)});
+  const proj = Object.assign({rho:pm.rho}, elastic(pm.E, pm.nu), {A:pm.A, B:pm.B, n:pm.n, C:0.014, ef:pm.ef, spall:3*(pm.A + pm.B), efVis:Math.max(pm.ef, 0.05), mu:0.9, cp:pm.cp, Tm:pm.Tm, mT:1.0, T0:293});
+  const d = Pm.d, Rp = d/2, sphere = Pm.core === 'plastic';
+  const vol = Pm.m/pm.rho;
+  let Ln = 0, Lb = 0;
+  if (!sphere){
+    Ln = Math.min(1.5*d, 0.6*vol/(Math.PI*Rp*Rp));
+    Lb = Math.max(0, (vol - Math.PI*Rp*Rp*Ln*8/15)/(Math.PI*Rp*Rp));
+  }
+  const Ltot = sphere ? d : Ln + Lb;
+  const Tt = Math.max(T, 0.0005);
+  // very thick targets are treated as semi-infinite: only the part the projectile can reach is resolved, the rest is held fixed
+  const Tcut = Math.max(10*d, 1.5*Ltot + 6*d);
+  const Tsim = Math.min(Tt, Tcut), truncated = Tt > Tcut;
+  const Rdom = Math.min(S/2, Math.max(6*d, 3*d + 0.5*Tsim));
+  const exitL = Math.max(6*d, Math.min(Ltot, 0.15));
+  const cmax = Math.max(Math.sqrt((plate.K + 4/3*plate.G)/plate.rho), Math.sqrt((proj.K + 4/3*proj.G)/proj.rho));
+  const tMax = 4.5*(Ltot + Tsim + 2*d)/Pm.v + 3*Tsim/cmax + 10e-6;
+  const est = dx => {
+    const nP = 4*((Rdom/dx)*(Tsim/dx)) + 4*((Rp/dx + 1)*(Ltot/dx));
+    const steps = tMax/(0.3*dx/(cmax + Pm.v));
+    return {nP, steps, work: nP*Math.min(steps, 40000)};
+  };
+  // quality preset: work budget (particle-steps) and the resolution we refuse to go below
+  const Q = {fast:{budget:1.2e7, floor:3.5, cap:40000}, normal:{budget:3e7, floor:4.2, cap:80000}, fine:{budget:1.2e8, floor:8, cap:160000}}[(typeof document !== 'undefined' && document.getElementById('simq')) ? document.getElementById('simq').value : 'normal'];
+  let dx = d/10;
+  for (let k=0;k<50;k++){
+    const e = est(dx), cpd = d/dx;
+    if ((e.nP <= Q.cap && e.work <= Q.budget) || cpd <= Q.floor) break;
+    dx *= 1.08;
+  }
+  const e = est(dx);
+  return {cfg:{dx, T:Tsim, backFix: truncated ? Tsim : Infinity, R:Rdom, z0:-(Ltot + 3*dx), z1:Tsim + (truncated ? 2*dx : exitL), mats:[plate, proj], proj:{R:Rp, Ln, Lb, sphere}, v0:Pm.v,
+    ke0:0.5*Pm.m*Pm.v*Pm.v, cfl:0.3, tMax, maxSteps:Math.min(40000, Math.ceil(e.steps*1.2) + 200), estSteps:e.steps*0.6, nFrames:110, maxN:Math.ceil(e.nP*1.3) + 2000},
+    info:{cellsPerD: d/dx, nEst: Math.round(e.nP), Ltot, plateCol:M.color, projCol:pm.col, Pm, truncated, Tsim, Treal:Tt}};
+}
+function simWorkerURL(){
+  if (!SIM.url) SIM.url = URL.createObjectURL(new Blob(['(' + simWorkerMain.toString() + ')()'], {type:'text/javascript'}));
+  return SIM.url;
+}
+function simEstimateLabel(){
+  if (!simMode) return;
+  const P0 = params(), M = MATS[matKey];
+  if (M.gel || P0.core === 'heat' || P0.core === 'hesh'){ $('o-simq').textContent = '지원 안 됨'; return; }
+  const {cfg, info} = buildSimCfg();
+  const steps = Math.min(cfg.maxSteps, cfg.estSteps/0.6);
+  const sec = info.nEst*steps*0.5e-6*0.6;
+  $('o-simq').textContent = '직경당 ' + info.cellsPerD.toFixed(1) + '칸 · 약 ' + (sec < 60 ? Math.max(1, Math.round(sec)) + '초' : Math.round(sec/60) + '분');
+}
+function runSim(){
+  if (SIM.busy) return;
+  const P0 = params(), M = MATS[matKey];
+  if (M.gel || P0.core === 'heat' || P0.core === 'hesh'){
+    $('simmsg').textContent = M.gel ? '발리스틱 젤은 입자 모드에서 지원하지 않습니다. 공식 모델로 보세요.' : '성형작약·점착유탄은 폭발 현상이라 입자 모드에서 지원하지 않습니다.';
+    $('simmsg').hidden = false; clearTimeout(SIM.msgT); SIM.msgT = setTimeout(() => { $('simmsg').hidden = true; }, 5000); return;
+  }
+  $('simmsg').hidden = true;
+  const {cfg, info} = buildSimCfg();
+  SIM.busy = true; SIM.playing = false;
+  $('simprog').hidden = false; $('simprog-t').textContent = '입자 계산 준비 중…'; $('simprog-bar').style.width = '0%';
+  let w;
+  try { w = new Worker(simWorkerURL()); } catch(err){ $('simprog-t').textContent = '이 브라우저에서 계산 스레드를 만들 수 없습니다.'; SIM.busy = false; return; }
+  SIM.worker = w;
+  w.onmessage = e => {
+    const msg = e.data;
+    if (msg.type === 'progress'){
+      $('simprog-bar').style.width = Math.round(msg.p*100) + '%';
+      $('simprog-t').textContent = '입자 ' + msg.N.toLocaleString() + '개 계산 중 · ' + Math.round(msg.p*100) + '%';
+    } else if (msg.type === 'done'){
+      w.terminate(); SIM.worker = null; SIM.busy = false; $('simprog').hidden = true;
+      SIM.data = Object.assign(msg, {cfg, info});
+      buildSimPoints(); frameSimCamera(); SIM.ft = 0; SIM.playing = true; $('simbar').hidden = false; $('simplay').textContent = '❚❚';
+      showSimResult(); playImpact(cfg.ke0, msg.res.pen ? 'pen' : 'dent');
+    } else if (msg.type === 'error'){
+      w.terminate(); SIM.worker = null; SIM.busy = false; $('simprog-t').textContent = '계산 중 오류: ' + msg.msg.split('\n')[0];
+      setTimeout(() => { $('simprog').hidden = true; }, 4000);
+    }
+  };
+  w.postMessage(cfg);
+}
+function cancelSim(){ if (SIM.worker){ SIM.worker.terminate(); SIM.worker = null; } SIM.busy = false; $('simprog').hidden = true; }
+const SIM_VS = `
+attribute float aAng; attribute float iR; attribute float iZ; attribute vec3 iC;
+uniform float uSize; uniform float uDA; uniform float uScale; varying vec3 vC;
+void main(){
+  vec3 p = vec3(iR*cos(aAng), iR*sin(aAng), -iZ);
+  vec4 mv = modelViewMatrix*vec4(p, 1.0);
+  gl_Position = projectionMatrix*mv;
+  float s = max(uSize, iR*uDA)*1.3;
+  gl_PointSize = iR < 0.0 ? 0.0 : max(1.0, s*uScale/(-mv.z));
+  vC = iC*(0.62 + 0.38*abs(sin(aAng)));
+}`;
+const SIM_FS = `
+varying vec3 vC;
+void main(){ vec2 d = gl_PointCoord - 0.5; gl_FragColor = vec4(vC*(1.0 - 0.35*dot(d, d)*2.0), 1.0); }`;
+function buildSimPoints(){
+  const D = SIM.data, N = D.N;
+  if (!SIM.group){ SIM.group = new THREE.Group(); scene.add(SIM.group); }
+  if (SIM.pts){ SIM.group.remove(SIM.pts); SIM.geo.dispose(); SIM.pts.material.dispose(); }
+  const A = Math.max(6, Math.min(48, Math.round(260000/N)));
+  const g = new THREE.InstancedBufferGeometry();
+  const ang = new Float32Array(A); for (let k=0;k<A;k++) ang[k] = Math.PI/2 + Math.PI*k/(A-1);
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(A*3), 3));
+  g.setAttribute('aAng', new THREE.BufferAttribute(ang, 1));
+  g.setAttribute('iR', new THREE.InstancedBufferAttribute(new Float32Array(N), 1));
+  g.setAttribute('iZ', new THREE.InstancedBufferAttribute(new Float32Array(N), 1));
+  g.setAttribute('iC', new THREE.InstancedBufferAttribute(new Float32Array(N*3), 3));
+  g.instanceCount = N;
+  const mtl = new THREE.ShaderMaterial({vertexShader:SIM_VS, fragmentShader:SIM_FS, uniforms:{uSize:{value:D.cfg.dx*0.5}, uDA:{value:Math.PI/(A-1)}, uScale:{value:1}}});
+  const pts = new THREE.Points(g, mtl); pts.frustumCulled = false;
+  SIM.group.add(pts); SIM.pts = pts; SIM.geo = g;
+  $('simt').max = D.frames.length - 1;
+  setSimFrame(0);
+}
+const _c = new THREE.Color(), _c2 = new THREE.Color();
+function simColor(mi, epb, spb, out){
+  const D = SIM.data;
+  if (SIM.mode === 'mat'){
+    _c.set(mi === 0 ? D.info.plateCol : D.info.projCol);
+    if (epb === 255) _c.multiplyScalar(0.45);
+    else if (epb > 30) _c.lerp(_c2.set(mi === 0 ? 0x6f7680 : 0xb07a2a), 0.25);
+  } else if (SIM.mode === 'ep'){
+    if (epb === 255) _c.set(0x3a0d06);
+    else { const q = epb/254; if (q < 0.02) _c.set(mi === 0 ? 0x2c3e55 : 0x4a4f58); else if (q < 0.35) _c.set(0x2c3e55).lerp(_c2.set(0xf2c14e), q/0.35); else _c.set(0xf2c14e).lerp(_c2.set(0xe0442a), Math.min(1, (q - 0.35)/0.65)); }
+  } else {
+    const q = spb/255; _c.setHSL(0.66 - 0.55*Math.min(1, q), 0.85, 0.25 + 0.4*Math.min(1, q));
+  }
+  out[0] = _c.r; out[1] = _c.g; out[2] = _c.b;
+}
+function setSimFrame(k){
+  const D = SIM.data; if (!D || !SIM.geo) return;
+  k = Math.max(0, Math.min(D.frames.length - 1, k)); SIM.frame = k;
+  const f = D.frames[k], N = D.N;
+  const aR = SIM.geo.attributes.iR, aZ = SIM.geo.attributes.iZ, aC = SIM.geo.attributes.iC, tmp = [0, 0, 0];
+  for (let p=0;p<N;p++){
+    aR.array[p] = f.P[2*p]; aZ.array[p] = f.P[2*p+1];
+    simColor(p < D.nPlate ? 0 : 1, f.I[2*p], f.I[2*p+1], tmp);
+    aC.array[3*p] = tmp[0]; aC.array[3*p+1] = tmp[1]; aC.array[3*p+2] = tmp[2];
+  }
+  aR.needsUpdate = aZ.needsUpdate = aC.needsUpdate = true;
+  $('simt').value = k;
+  $('simtl').textContent = 't = ' + (f.t*1e6).toFixed(1) + ' µs';
+}
+function frameSimCamera(){
+  const c = SIM.data.cfg, zc = (c.z0 + c.z1)/2, D = Math.max(c.R, (c.z1 - c.z0)/2);
+  controls.target.set(0, 0, -zc);
+  camera.position.set(D*2.1, D*0.55, -zc + D*0.9);
+  controls.minDistance = D*0.15; controls.maxDistance = D*8;
+  grid.position.y = -c.R*1.05; grid.scale.setScalar(Math.max(0.05, D*4)/6*10/10);
+}
+function enterSimScene(){
+  front.visible = back.visible = false; frameGroup.visible = false; cap.visible = false;
+  if (wit.mesh) wit.mesh.visible = false;
+  if (SIM.group) SIM.group.visible = true;
+}
+function setSimMode(on){
+  simMode = on;
+  document.querySelectorAll('.modes button').forEach(b => b.setAttribute('aria-selected', String((b.dataset.mode === 'sim') === on)));
+  document.body.classList.toggle('sim', on);
+  $('fire').textContent = on ? '시뮬레이션 실행' : '발사';
+  $('simmsg').hidden = true;
+  if (on){
+    if (gelMode){ exitGelScene(); gelMode = false; $('mat').value = 'mild'; matKey = 'mild'; applyTemp(); }
+    if (section.on) setSection(false);
+    enterSimScene();
+    $('simbar').hidden = !SIM.data;
+    if (SIM.data) frameSimCamera();
+    $('result').hidden = true;
+  } else {
+    cancelSim(); SIM.playing = false;
+    if (SIM.group) SIM.group.visible = false;
+    $('simbar').hidden = true; $('result').hidden = true;
+    buildPlate(); frameCamera();
+  }
+  syncLabels();
+}
+function showSimResult(){
+  const D = SIM.data, r = D.res, info = D.info, Pm = info.Pm;
+  $('r-kv').hidden = true; $('g-kv').hidden = true; $('g-prof').toggleAttribute('hidden', true); $('s-kv').hidden = false;
+  const el = $('r-verdict');
+  const pen = r.pen && !info.truncated;
+  el.textContent = pen ? '관통 (입자 계산)' : r.depth > 0.004 ? '부분 관입 · 정지 (입자 계산)' : '정지 (입자 계산)';
+  el.className = 'verdict ' + (pen ? 'v-pen' : 'v-blind');
+  $('s-vres').textContent = pen ? Math.round(r.vres) + ' m/s' : '0 m/s';
+  $('s-intact').textContent = Math.round(r.intact*100) + '%';
+  $('s-depth').textContent = pen ? '판 전체' : fmtMM(r.depth);
+  $('s-bulge').textContent = fmtMM(r.bulge);
+  $('s-lost').textContent = (r.mLost*1000).toFixed(r.mLost < 0.01 ? 2 : 1) + ' g';
+  const R = evaluate(Object.assign({}, Pm));
+  $('s-formula').textContent = (R.pen ? '관통' : R.mode === 'crater' && R.canCrater ? '부분 관입' : '정지') + (R.pen ? ' · 잔류 ' + Math.round(R.vr) + ' m/s' : '');
+  $('s-res').textContent = 'dx ' + (D.cfg.dx*1000).toFixed(2) + ' mm · 직경당 ' + info.cellsPerD.toFixed(1) + '칸' + (info.cellsPerD < 6 ? ' (거침)' : '');
+  const noteTxt = [info.truncated ? '판이 매우 두꺼워 앞쪽 ' + fmtMM(info.Tsim) + '만 계산하고 그 뒤는 고정된 것으로 봤습니다.' : '', info.cellsPerD < 6 ? '해상도가 낮은 편입니다(탄 직경당 ' + info.cellsPerD.toFixed(1) + '칸). 해상도가 낮을수록 관입이 얕게 나오는 경향이 있으니, 정밀 모드에서 다시 계산해 보세요.' : ''].filter(Boolean).join(' ');
+  $('s-note').textContent = noteTxt; $('s-note').hidden = $('s-note-l').hidden = !noteTxt;
+  $('s-perf').textContent = r.N.toLocaleString() + '입자 · ' + r.steps.toLocaleString() + '스텝 · ' + (r.ms/1000).toFixed(1) + ' s';
+  $('result').hidden = false;
+  addLog(Object.assign({}, Pm, {label:'[입자] ' + (Pm.label || '')}), r.pen ? '관통' : '정지', r.pen ? 'pen' : 'blind', r.pen ? Math.round(r.vres) + ' m/s' : fmtMM(r.depth));
+}
+function stepSim(rdt){
+  if (!simMode || !SIM.data) return;
+  if (SIM.pts) SIM.pts.material.uniforms.uScale.value = renderer.domElement.height/(2*Math.tan(camera.fov*Math.PI/360));
+  if (!SIM.playing) return;
+  const n = SIM.data.frames.length;
+  SIM.ft += rdt*(n/4.5)*timeScale;
+  if (SIM.ft >= n - 1){ SIM.ft = n - 1; SIM.playing = false; $('simplay').textContent = '↺'; }
+  const k = Math.floor(SIM.ft);
+  if (k !== SIM.frame) setSimFrame(k);
+}
+
+/* ---------- loop ---------- */
+let last = performance.now();
+const camGoal = {active:false, pos:new THREE.Vector3()};
+function loop(now){
+  const rdt = Math.min(0.05, (now-last)/1000); last = now;
+  const dt = rdt * timeScale;
+  let geomDirty = false;
+
+  if (burst){
+    burst.timer -= dt;
+    if (burst.timer <= 0){
+      const sp = +$('spread').value/100*S, g = gauss();
+      fireAt(burst.x + g[0]*sp, burst.y + g[1]*sp);
+      burst.left--; burst.timer = 0.11;
+      if (burst.left <= 0) burst = null;
+    }
+  }
+  for (let j=flights.length-1;j>=0;j--){
+    const sh = flights[j];
+    sh.t += dt;
+    const k = Math.min(1, sh.t/sh.fly);
+    if (!sh.hit){
+      sh.bullet.position.copy(sh.start).addScaledVector(sh.dir, sh.L*k);
+      if (k >= 1){ sh.hit = true; onImpact(sh); }
+    }
+    const tp = sh.trail.geometry.attributes.position.array;
+    const tail = sh.start.clone().addScaledVector(sh.dir, sh.L*Math.max(0, k - 0.35));
+    const head = sh.hit ? sh.impact : sh.bullet.position;
+    tp.set([tail.x,tail.y,tail.z, head.x,head.y,head.z]); sh.trail.geometry.attributes.position.needsUpdate = true;
+    if (sh.hit) sh.trail.material.opacity *= Math.pow(0.88, dt*60);
+    if (sh.hit && sh.t > sh.fly + 0.35){
+      scene.remove(sh.trail); sh.trail.geometry.dispose();
+      flights.splice(j, 1);
+      showResult(sh.result);
+    }
+  }
+  if (deforms.length){
+    const act = [], done = [];
+    for (let j=deforms.length-1;j>=0;j--){
+      const d = deforms[j];
+      d.t += dt;
+      const p = Math.min(1, d.t/d.dur);
+      if (p >= 1){
+        const F = d.field;
+        const lim = S*0.3;
+        for (let i=0;i<perm.length;i++){
+          perm[i]  += F.f[i] * Math.max(0.03, 1 + perm[i]/lim);
+          permB[i] += F.b[i] * Math.max(0.03, 1 + permB[i]/lim);
+        }
+        deforms.splice(j, 1);
+        done.push(d.onDone || (() => {}));
+      } else act.push({field:d.field, k: 1 - Math.pow(1-p,3) + 0.18*Math.sin(Math.PI*p)});
+    }
+    updateGeometry(act);
+    done.forEach(fn => fn());
+    if (done.length || act.length === 0) refreshAttachments();
+    geomDirty = true;
+  }
+  if (vib.A > 0){
+    vib.t += dt;
+    if (vib.t > 2){ vib.A = 0; }
+    if (!geomDirty) updateGeometry(null);
+  }
+  for (let i=flyers.length-1;i>=0;i--){
+    const f = flyers[i];
+    f.life -= dt;
+    if (f.grav) f.vel.y -= 1.6*S*dt;
+    const fz = f.obj.position.z;
+    f.obj.position.addScaledVector(f.vel, dt);
+    if (wit.mesh && fz > wit.z && f.obj.position.z <= wit.z){
+      const sz = f.size || S*0.01;
+      witnessMark(f.obj.position.x, f.obj.position.y, sz, true);
+      if (!f.align){ f.vel.z *= -0.25; f.obj.position.z = wit.z + 0.002; }
+    }
+    if (f.spin){ f.obj.rotation.x += f.spin.x*dt; f.obj.rotation.y += f.spin.y*dt; }
+    if (f.align){ const t = f.obj.position.clone().add(f.vel); f.obj.lookAt(t); f.obj.rotateY(Math.PI); }
+    if (f.life <= 0){ scene.remove(f.obj); flyers.splice(i,1); }
+  }
+  let hDirty = false;
+  for (const h of holes){ if (h.heat > 0.01){ h.heat *= Math.exp(-dt*0.7); hDirty = true; } }
+  for (const m of marks){ if (m.heat > 0.01){ m.heat *= Math.exp(-dt*0.9); hDirty = true; } }
+  for (let j=rings.length-1;j>=0;j--){ const o = rings[j]; o.t += dt; const q = o.t/0.4; o.m.scale.setScalar(o.r0 + o.grow*q); o.m.material.opacity = 0.75*(1-q)*(1-q); if (q >= 1){ scene.remove(o.m); o.m.material.dispose(); rings.splice(j,1); } }
+  if (hDirty) syncUniforms();
+  stepParticles(dt);
+  if (wit.dirty){ wit.tex.needsUpdate = true; wit.dirty = false; $('r-wit').textContent = wit.hits + '곳'; }
+  stepShards(dt);
+  stepFX(dt);
+  if (gelMode) gelStep(dt);
+  stepSim(rdt);
+  if (section.on && (geomDirty || vib.A > 0 || hDirty)) updateCap();
+
+  if (camGoal.active){
+    camera.position.lerp(camGoal.pos, 1 - Math.exp(-rdt*5));
+    if (camera.position.distanceTo(camGoal.pos) < S*0.005) camGoal.active = false;
+  }
+  controls.update();
+  let off = null;
+  if (shake > 0.01 && !reduceMotion){ off = new THREE.Vector3((Math.random()-0.5), (Math.random()-0.5), (Math.random()-0.5)).multiplyScalar(shake*S*0.02); camera.position.add(off); }
+  shake *= Math.exp(-rdt*9);
+  renderer.render(scene, camera);
+  if (off) camera.position.sub(off);
+  requestAnimationFrame(loop);
+}
+
+/* ---------- camera ---------- */
+function frameCamera(){
+  if (simMode && SIM.data){ frameSimCamera(); return; }
+  if (gelMode){
+    camera.position.set(0.34, 0.13, 0.26); controls.target.set(0, -0.01, -0.2);
+    controls.minDistance = 0.08; controls.maxDistance = 2.5;
+    pMat.size = 0.0035; scene.fog.near = 2; scene.fog.far = 7;
+    $('flip').textContent = '뒷면 보기'; return;
+  }
+  camera.position.set(S*0.75, S*0.35, S*1.9);
+  controls.target.set(0, 0, 0);
+  controls.minDistance = S*0.25; controls.maxDistance = S*6;
+  pMat.size = S*0.008;
+  scene.fog.near = S*4; scene.fog.far = S*14;
+  $('flip').textContent = '뒷면 보기';
+}
+$('flip').addEventListener('click', () => {
+  const p = camera.position.clone();
+  const toBack = p.z > 0;
+  camGoal.pos.set(-p.x, p.y, -p.z); camGoal.active = true;
+  $('flip').textContent = toBack ? '앞면 보기' : '뒷면 보기';
+});
+controls.addEventListener('start', () => { camGoal.active = false; });
+
+/* ---------- input ---------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let down = null;
+cv.addEventListener('pointerdown', e => { down = {x:e.clientX, y:e.clientY, t:performance.now(), id:e.pointerId}; });
+cv.addEventListener('pointerup', e => {
+  if (!down || down.id !== e.pointerId) return;
+  const moved = Math.hypot(e.clientX-down.x, e.clientY-down.y), dt = performance.now()-down.t;
+  down = null;
+  if (moved > 6 || dt > 400 || simMode) return;
+  const r = cv.getBoundingClientRect();
+  ndc.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(ndc, camera);
+  const hit = gelMode ? ray.intersectObject(gel.block, false)[0] : ray.intersectObjects([front, back], false)[0];
+  if (hit && gelMode){ trigger(hit.point.x, hit.point.y); return; }
+  if (hit){ const lp = hit.object.worldToLocal(hit.point.clone()); trigger(lp.x, lp.y); }
+});
+$('fire').addEventListener('click', () => {
+  const a = Math.random()*Math.PI*2, r = Math.sqrt(Math.random())*S*0.2;
+  trigger(Math.cos(a)*r, Math.sin(a)*r);
+});
+$('reset').addEventListener('click', buildPlate);
+document.querySelectorAll('.modes button').forEach(b => b.addEventListener('click', () => { const on = b.dataset.mode === 'sim'; if (on !== simMode) setSimMode(on); }));
+$('simplay').addEventListener('click', () => {
+  if (!SIM.data) return;
+  if (!SIM.playing && SIM.frame >= SIM.data.frames.length - 1) SIM.ft = 0;
+  SIM.playing = !SIM.playing; $('simplay').textContent = SIM.playing ? '❚❚' : '▶';
+});
+$('simt').addEventListener('input', () => { SIM.playing = false; $('simplay').textContent = '▶'; SIM.ft = +$('simt').value; setSimFrame(+$('simt').value); });
+$('simcol').addEventListener('change', () => { SIM.mode = $('simcol').value; setSimFrame(SIM.frame); });
+$('simcancel').addEventListener('click', cancelSim);
+$('simq').addEventListener('change', simEstimateLabel);
+$('logclr').addEventListener('click', () => { logRows.length = 0; $('log').innerHTML = ''; $('logbox').hidden = true; });
+function toggleResult(){ const el = $('result'), o = !el.classList.contains('open'); el.classList.toggle('open', o); el.setAttribute('aria-expanded', o); $('r-more').textContent = o ? '접기 ▴' : '자세히 ▾'; }
+$('result').addEventListener('click', toggleResult);
+$('result').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleResult(); } });
+
+let massExact = null;
+function massG(){ return massExact ?? Math.round(0.1*Math.pow(10, 5*(+$('mass').value)/1000)*100)/100; }
+let curveOn = false;
+// Ballistic-limit curve: for each range, bisect (in log thickness) the thickest plate this round still defeats.
+function drawCurve(){
+  if (!curveOn) return;
+  const svg = $('curve');
+  if (gelMode){ svg.innerHTML = '<text x="150" y="100" text-anchor="middle">젤 블록에는 적용되지 않습니다</text>'; $('curvehint').textContent = ''; return; }
+  const base = params(), k = dragK(base.m, base.d, base.core);
+  const tmin = 0.0005, tmax = 0.5, L0 = Math.log(tmin), L1 = Math.log(tmax), N = 40, XR = 2000;
+  const defeats = R => R.hesh ? (R.spall || R.blast) : R.pen;
+  const test = (P, t) => { thkOverride = t; const R = evaluate(P); thkOverride = null; return defeats(R); };
+  const pts = [];
+  for (let i=0;i<=N;i++){
+    const x = XR*i/N, P = Object.assign({}, base, {v:Math.max(5, base.v0*Math.exp(-k*x)), range:x});
+    let bt;
+    if (!test(P, tmin)) bt = 0;
+    else if (test(P, tmax)) bt = tmax;
+    else { let lo = L0, hi = L1; for (let it=0; it<22; it++){ const mid = (lo+hi)/2; if (test(P, Math.exp(mid))) lo = mid; else hi = mid; } bt = Math.exp(lo); }
+    pts.push([x, bt]);
+  }
+  const W = 300, H = 196, ml = 38, mr = 8, mt = 8, mb = 24, pw = W-ml-mr, ph = H-mt-mb;
+  const X = x => ml + pw*x/XR, Y = t => mt + ph*(1 - (Math.log(Math.max(t, tmin)) - L0)/(L1 - L0));
+  let area = `M${X(0)} ${Y(tmin)}`, line = '';
+  pts.forEach(([x, t], i) => { const yy = t <= 0 ? Y(tmin) : Y(t); area += ` L${X(x).toFixed(1)} ${yy.toFixed(1)}`; line += (i ? ' L' : 'M') + X(x).toFixed(1) + ' ' + yy.toFixed(1); });
+  area += ` L${X(XR)} ${Y(tmin)} Z`;
+  let g = '';
+  for (const mm of [1, 10, 100, 500]){ const y = Y(mm/1000); g += `<line x1="${ml}" y1="${y}" x2="${W-mr}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${ml-4}" y="${y+3}" text-anchor="end">${mm}</text>`; }
+  for (const xm of [0, 500, 1000, 1500, 2000]){ const x = X(xm); g += `<line x1="${x}" y1="${mt}" x2="${x}" y2="${H-mb}" stroke="var(--line)" stroke-width="1"/><text x="${x}" y="${H-mb+12}" text-anchor="middle">${xm}</text>`; }
+  const cur = evaluate(base), on = defeats(cur);
+  const cx = X(Math.min(XR, base.range)), cy = Y(Math.min(tmax, Math.max(tmin, thkM())));
+  svg.innerHTML = `${g}
+    <path d="${area}" fill="var(--pen)" opacity="0.18"/>
+    <path d="${line}" fill="none" stroke="var(--pen)" stroke-width="2"/>
+    <circle cx="${cx}" cy="${cy}" r="4.5" fill="${on ? 'var(--pen)' : 'var(--dent)'}" stroke="var(--bg)" stroke-width="1.5"/>
+    <text x="${ml+4}" y="${mt+10}">두께 mm (로그)</text>
+    <text x="${W-mr}" y="${H-4}" text-anchor="end">사거리 m</text>
+    <text x="${ml+4}" y="${H-mb-6}" style="fill:var(--pen)">관통 영역</text>`;
+  const here = pts[Math.min(N, Math.round(base.range/XR*N))][1];
+  const safe = pts.find(([x, t]) => t < thkM());
+  $('curvehint').textContent = (here >= tmax ? '이 사거리에서는 500 mm 이상 관통' : here <= 0 ? '이 사거리에서는 0.5 mm도 관통 못 함' : '이 사거리에서 최대 ' + fmtMM(here) + ' 관통') +
+    ' · 현재 판(' + fmtMM(thkM()) + ')은 ' + (safe ? (safe[0] === 0 ? '모든 거리에서 막음' : Math.round(safe[0]) + ' m 밖부터 막음') : '2 km까지 관통당함');
+}
+function syncLabels(){
+  tempLabel();
+  simEstimateLabel();
+  const tmm = thkM()*1000; $('o-thk').textContent = (tmm < 10 ? tmm.toFixed(1) : Math.round(tmm)) + ' mm';
+  $('o-size').textContent = $('size').value + ' cm';
+  const g = massG(); $('o-mass').textContent = g >= 1000 ? (g/1000).toFixed(2) + ' kg' : g.toFixed(g < 10 ? 2 : 1) + ' g';
+  $('o-vel').textContent = $('vel').value + ' m/s';
+  $('o-dia').textContent = (+$('dia').value).toFixed(1) + ' mm';
+  $('o-ang').textContent = $('ang').value + '°';
+  { const P0 = params(); $('o-range').textContent = P0.range + ' m · 착탄 ' + Math.round(P0.v) + ' m/s'; }
+  const R = evaluate(params());
+  const v = R.hesh ? (R.blast ? '폭발 관통' : R.spall ? '후면 박리' : '박리 없음') : R.heat ? (R.pen ? '제트 관통' : '제트 부분 관입') : R.pen ? '관통' : R.ric ? '도탄' : (R.mode === 'crater' && R.canCrater) ? '부분 관입' : R.gate < R.Rt ? '탄 변형·튕김' : '변형만';
+  const Mm = MATS[matKey];
+  let crack = '';
+  if (Mm.brittle){ const Rs = R.Eeff*0.012/(40*Mm.Gc*Math.max(thkM(), 0.0015)); if (Mm.tempered ? Rs > 0.01 : Rs > Math.max(+$('dia').value/1000*1.5, S*0.06)) crack = ' · 파쇄'; }
+  const pv = $('p-verdict'); pv.textContent = v + crack + '  ×' + R.ratio.toFixed(R.ratio < 10 ? 2 : 0);
+  pv.style.color = R.pen ? 'var(--pen)' : R.ric ? 'var(--ric)' : 'var(--dent)';
+  const bar = $('p-bar');
+  bar.style.width = Math.min(100, 50*R.ratio) + '%';
+  bar.style.background = R.pen ? 'var(--pen)' : 'var(--dent)';
+  $('p-e').textContent = '유효 E ' + fmtJ(R.Eeff);
+  $('p-epen').textContent = '관통 필요 ' + fmtJ(R.Epen);
+  if (R.hesh){ $('p-e').textContent = '박리 한계 ' + fmtMM(R.Tmax); $('p-epen').textContent = '후면 충격압 ' + (R.Pback/1e9).toFixed(2) + ' / ' + (R.sigma/1e9).toFixed(2) + ' GPa'; pv.style.color = R.spall || R.blast ? 'var(--pen)' : 'var(--dent)'; bar.style.background = R.spall || R.blast ? 'var(--pen)' : 'var(--dent)'; }
+  if (R.heat){ $('p-e').textContent = 'RHA 환산 ' + fmtMM(R.Prha); $('p-epen').textContent = '이 표적 제트 관통력 ' + fmtMM(R.Pt); }
+  if (gelMode){
+    const G = gelSim(params());
+    pv.textContent = (G.exitV > 0 ? '관통 (블록 40cm 초과)' : '관입 ' + (G.depth*100).toFixed(1) + ' cm') + (G.fragX != null ? ' · 파편화' : '');
+    pv.style.color = G.exitV > 0 ? 'var(--pen)' : 'var(--accent)';
+    bar.style.width = Math.min(100, G.depth/0.8*100) + '%'; bar.style.background = 'var(--accent)';
+    $('p-e').textContent = 'E ' + fmtJ(R.E);
+    $('p-epen').textContent = '순간공동 최대 ' + (G.maxR*200).toFixed(1) + ' cm';
+  }
+  drawCurve();
+}
+function applyPreset(){
+  const a = AMMO[$('ammo').value]; if (!a.m) return;
+  massExact = a.m; $('mass').value = Math.round(1000*Math.log10(a.m/0.1)/5); $('vel').value = a.v; $('dia').value = a.d; $('core').value = a.core;
+  syncLabels();
+}
+$('ammo').addEventListener('change', applyPreset);
+for (const id of ['mass','vel','dia','core']) $(id).addEventListener('input', () => { if (id === 'mass') massExact = null; $('ammo').value = 'custom'; syncLabels(); });
+$('sec').addEventListener('click', () => setSection(!section.on));
+$('wit').addEventListener('click', () => {
+  wit.on = !wit.on; $('wit').setAttribute('aria-pressed', wit.on); $('wit').textContent = wit.on ? '증거판 치우기' : '증거판 세우기';
+  buildWitness();
+});
+$('speed').addEventListener('change', () => { timeScale = +$('speed').value; });
+$('spread').addEventListener('input', () => { $('o-spread').textContent = (+$('spread').value/100*S*100).toFixed(1) + ' cm'; });
+$('snd').addEventListener('click', () => {
+  soundOn = !soundOn; $('snd').setAttribute('aria-pressed', soundOn); $('snd').textContent = soundOn ? '소리 켬' : '소리 끔';
+  if (soundOn) audio();
+});
+$('secpos').addEventListener('input', () => setSectionPos(+$('secpos').value/100*S));
+$('sec-snap').addEventListener('click', () => {
+  if (!lastImpact) return;
+  const v = Math.max(-48, Math.min(48, lastImpact.x/S*100)); $('secpos').value = v; setSectionPos(v/100*S);
+  if (!section.on) setSection(true);
+});
+$('ang').addEventListener('input', syncLabels);
+$('range').addEventListener('input', syncLabels);
+$('temp').addEventListener('input', () => { applyTemp(); tempLabel(); syncLabels(); });
+$('temp').addEventListener('change', () => { applyTemp(); buildPlate(); tempLabel(); syncLabels(); });
+$('curvebtn').addEventListener('click', () => {
+  curveOn = !curveOn; $('curvebtn').textContent = curveOn ? '접기' : '보기'; $('curvebtn').setAttribute('aria-expanded', curveOn);
+  $('curve').toggleAttribute('hidden', !curveOn); $('curvehint').hidden = !curveOn; drawCurve();
+});
+for (const id of ['thk','size']) $(id).addEventListener('input', syncLabels);
+$('thk').addEventListener('change', () => { T = thkM(); buildPlate(); syncLabels(); });
+$('size').addEventListener('change', () => { S = +$('size').value/100; buildPlate(); frameCamera(); setSectionPos(+$('secpos').value/100*S); });
+$('mat').addEventListener('change', () => { matKey = $('mat').value; applyTemp(); const g = !!MATS[matKey].gel; const changed = g !== gelMode; if (!g && gelMode) exitGelScene(); gelMode = g; buildPlate(); if (changed) frameCamera(); syncLabels(); });
+
+function resize(){
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w/Math.max(1,h); camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+T = thkM(); S = +$('size').value/100;
+applyTemp();
+buildPlate(); frameCamera(); setSectionPos(0); applyPreset(); resize();
+$('o-spread').textContent = (+$('spread').value/100*S*100).toFixed(1) + ' cm';
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
